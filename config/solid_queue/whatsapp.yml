@@ -1,0 +1,16 @@
+default: &default
+  dispatchers: []
+  workers:
+    - queues: [ "whatsapp_meta", "whatsapp" ]
+      threads: <%= ENV.fetch("WHATSAPP_WORKER_THREADS", 5) %>
+      processes: <%= ENV.fetch("WHATSAPP_WORKER_PROCESSES", 1) %>
+      polling_interval: 0.1
+
+production:
+  <<: *default
+
+development:
+  <<: *default
+
+test:
+  <<: *default

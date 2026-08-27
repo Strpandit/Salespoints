@@ -1,0 +1,16 @@
+default: &default
+  dispatchers: []
+  workers:
+    - queues: [ "payment_gateway", "payments" ]
+      threads: <%= ENV.fetch("PAYMENT_WORKER_THREADS", 5) %>
+      processes: <%= ENV.fetch("PAYMENT_WORKER_PROCESSES", 1) %>
+      polling_interval: 0.1
+
+production:
+  <<: *default
+
+development:
+  <<: *default
+
+test:
+  <<: *default

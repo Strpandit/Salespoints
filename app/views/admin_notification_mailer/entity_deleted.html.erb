@@ -1,0 +1,79 @@
+<%= render 'admin_notification_mailer/email_header' %>
+
+      <!-- Card -->
+      <div class="card" style="padding:0; overflow:hidden;">
+
+        <!-- Header banner -->
+        <div class="header" style="background: linear-gradient(135deg, #dc2626 0%, #991b1b 100%);">
+          <div class="header-icon">🗑️</div>
+          <div class="header-text">
+            <h1><%= @entity_type %> Deleted</h1>
+            <p>SalesPoints Admin Notification</p>
+          </div>
+        </div>
+
+        <div style="padding:28px 32px;">
+
+          <!-- Entity badge -->
+          <span class="entity-badge" style="background:#fef2f2; color:#dc2626;">
+            🗑️ <%= @entity_type %> — Removed
+          </span>
+
+          <!-- Intro -->
+          <p class="intro">
+            The <strong><%= @entity_type %></strong> record
+            <strong>&ldquo;<%= @entity_name %>&rdquo;</strong>
+            has been <strong>permanently deleted</strong> from the SalesPoints platform.
+          </p>
+
+          <!-- Who did it -->
+          <div class="actor-label">Deleted By</div>
+          <div class="actor-block" style="background:#fef2f2; border-color:#fecaca;">
+            <div class="actor-avatar" style="background:#dc2626;">
+              <%= (@actor[:name].presence || @actor[:email] || "?")[0] %>
+            </div>
+            <div class="actor-info">
+              <div class="actor-name" style="color:#991b1b;"><%= @actor[:name].presence || "Unknown" %></div>
+              <div class="actor-email"><%= @actor[:email].presence || "—" %></div>
+            </div>
+          </div>
+
+          <!-- Last-known values (if provided) -->
+          <% if @details.present? %>
+            <div class="changes-section">
+              <div class="section-title">📋 Deleted Record — Last Known Values</div>
+              <div class="details-grid">
+                <% @details.each do |field, value| %>
+                  <div class="detail-row">
+                    <div class="detail-key"><%= field.to_s.humanize %></div>
+                    <div class="detail-val" style="color:#dc2626;">
+                      <%= value.presence || "—" %>
+                    </div>
+                  </div>
+                <% end %>
+              </div>
+            </div>
+          <% end %>
+
+          <!-- Timestamp -->
+          <div class="timestamp-strip">
+            🕐 <span>Deleted at:</span>
+            <%= Time.current.strftime("%d %b %Y, %I:%M %p %Z") %>
+          </div>
+
+          <div class="warning-box">
+            ⚠️ <strong>This action is irreversible.</strong>
+            All associated data may have been removed. If this deletion was unintended, contact your database administrator immediately.
+          </div>
+
+          <!-- Footer -->
+          <div class="footer">
+            <p>This is an automated notification from <strong>SalesPoints</strong>.</p>
+            <p style="margin-top:6px;">© 2026 SalesPoints. All rights reserved.</p>
+          </div>
+
+        </div>
+      </div>
+    </div>
+  </body>
+</html>

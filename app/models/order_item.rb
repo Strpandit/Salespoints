@@ -1,0 +1,48 @@
+class OrderItem < ApplicationRecord
+  belongs_to :order
+  belongs_to :product_variant
+  belongs_to :dealer_product, optional: true 
+  belongs_to :product_variant_color, optional: true
+
+  validates :quantity, numericality: { greater_than: 0 }
+  validates :unit_price, :total_price, numericality: { greater_than_or_equal_to: 0 }
+
+  scope :accepted_items, -> { where.not(dealer_product_id: nil) }
+
+  before_validation :assign_total_price
+
+  def product_name
+    product_variant&.product&.name
+  end
+
+  def product_name_with_variant
+    base = product_name
+    sku = product_variant&.variant_sku
+    color_name = product_variant_color&.color_name || ad_hoc_color
+
+    name_parts = [base]
+    name_parts << "(#{sku})" if sku.present?
+    name_parts << "- #{color_name}" if color_name.present?
+
+    name_parts.compact.join(" ")
+  end
+
+  def accepted?
+    dealer_product_id.present?
+  end
+
+  private
+
+  def assign_total_price
+    return unless product_variant.present?
+    pricing = Pricing::PriceCalculator.new(
+      variant: product_variant,
+      quantity: quantity,
+      user_type: order.buyer.is_a?(Dealer) ? :dealer : :account
+    ).call
+
+    self.unit_price = pricing[:unit_price]
+    self.total_price = pricing[:subtotal]
+  end
+end
+

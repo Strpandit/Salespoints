@@ -1,0 +1,16 @@
+default: &default
+  dispatchers: []
+  workers:
+    - queues: [ "geo_broadcast", "broadcast", "cleanup" ]
+      threads: <%= ENV.fetch("BROADCAST_WORKER_THREADS", 6) %>
+      processes: <%= ENV.fetch("BROADCAST_WORKER_PROCESSES", 1) %>
+      polling_interval: 0.1
+
+production:
+  <<: *default
+
+development:
+  <<: *default
+
+test:
+  <<: *default

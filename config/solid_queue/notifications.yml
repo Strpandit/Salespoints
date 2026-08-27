@@ -1,0 +1,16 @@
+default: &default
+  dispatchers: []
+  workers:
+    - queues: [ "notifications_mail", "mailers", "notifications", "default" ]
+      threads: <%= ENV.fetch("NOTIFICATIONS_WORKER_THREADS", 5) %>
+      processes: <%= ENV.fetch("NOTIFICATIONS_WORKER_PROCESSES", 1) %>
+      polling_interval: 0.2
+
+production:
+  <<: *default
+
+development:
+  <<: *default
+
+test:
+  <<: *default

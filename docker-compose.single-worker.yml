@@ -1,0 +1,93 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: salespoints_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${DB_NAME:-salespoints_prod}
+      POSTGRES_USER: ${DB_USERNAME:-salespoint}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-Password@123}
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USERNAME:-salespoint} -d ${DB_NAME:-salespoints_prod}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - salespoints_net
+
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: salespoints_app:latest
+    container_name: salespoints_web
+    restart: unless-stopped
+    command: ["./bin/thrust", "./bin/rails", "server"]
+    env_file:
+      - path: .env.production
+        required: false
+      - path: .env
+        required: false
+    environment:
+      RAILS_ENV: production
+      DATABASE_URL: postgresql://${DB_USERNAME:-salespoint}:${DB_PASSWORD:-Password@123}@postgres:5432/${DB_NAME:-salespoints_prod}
+      RAILS_MAX_THREADS: 5
+      WEB_CONCURRENCY: 2
+      DB_POOL: 15
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - salespoints_net
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:80/up || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+  worker_all:
+    image: salespoints_app:latest
+    container_name: salespoints_worker_all
+    restart: unless-stopped
+    command: ["bundle", "exec", "solid_queue", "start", "--config=config/queue.yml"]
+    env_file:
+      - path: .env.production
+        required: false
+      - path: .env
+        required: false
+    environment:
+      RAILS_ENV: production
+      DATABASE_URL: postgresql://${DB_USERNAME:-salespoint}:${DB_PASSWORD:-Password@123}@postgres:5432/${DB_NAME:-salespoints_prod}
+      DB_POOL: 20
+    depends_on:
+      web:
+        condition: service_healthy
+    networks:
+      - salespoints_net
+
+  nginx:
+    image: nginx:alpine
+    container_name: salespoints_nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/conf.d:/etc/nginx/conf.d:ro
+    depends_on:
+      web:
+        condition: service_healthy
+    networks:
+      - salespoints_net
+
+volumes:
+  pgdata:
+
+networks:
+  salespoints_net:
+    driver: bridge

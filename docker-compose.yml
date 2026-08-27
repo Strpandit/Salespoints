@@ -1,0 +1,216 @@
+services:
+  # 1. PostgreSQL Database Service
+  postgres:
+    image: postgres:16-alpine
+    container_name: salespoints_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${DB_NAME:-salespoints_prod}
+      POSTGRES_USER: ${DB_USERNAME:-salespoint}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-Password@123}
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "${DB_PORT_BIND:-127.0.0.1:5432}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USERNAME:-salespoint} -d ${DB_NAME:-salespoints_prod}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - salespoints_net
+
+  # 2. Rails Web API Service (Puma + Thruster)
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: salespoints_app:latest
+    container_name: salespoints_web
+    restart: unless-stopped
+    command: ["./bin/thrust", "./bin/rails", "server"]
+    env_file:
+      - path: .env.production
+        required: false
+      - path: .env
+        required: false
+    environment:
+      RAILS_ENV: production
+      DATABASE_URL: postgresql://${DB_USERNAME:-salespoint}:${DB_PASSWORD:-Password@123}@postgres:5432/${DB_NAME:-salespoints_prod}
+      RAILS_MAX_THREADS: ${WEB_CONCURRENCY_THREADS:-5}
+      WEB_CONCURRENCY: ${WEB_WORKERS:-2}
+      DB_POOL: 15
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - salespoints_net
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:80/up || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+  # 3. Dedicated Solid Queue Worker: Payment Gateway
+  worker_payment:
+    image: salespoints_app:latest
+    container_name: salespoints_worker_payment
+    restart: unless-stopped
+    command: ["bundle", "exec", "solid_queue", "start", "--config=config/solid_queue/payments.yml"]
+    env_file:
+      - path: .env.production
+        required: false
+      - path: .env
+        required: false
+    environment:
+      RAILS_ENV: production
+      DATABASE_URL: postgresql://${DB_USERNAME:-salespoint}:${DB_PASSWORD:-Password@123}@postgres:5432/${DB_NAME:-salespoints_prod}
+      PAYMENT_WORKER_THREADS: ${PAYMENT_WORKER_THREADS:-5}
+      DB_POOL: 10
+    depends_on:
+      web:
+        condition: service_healthy
+    networks:
+      - salespoints_net
+
+  # 4. Dedicated Solid Queue Worker: Meta WhatsApp Cloud API
+  worker_whatsapp:
+    image: salespoints_app:latest
+    container_name: salespoints_worker_whatsapp
+    restart: unless-stopped
+    command: ["bundle", "exec", "solid_queue", "start", "--config=config/solid_queue/whatsapp.yml"]
+    env_file:
+      - path: .env.production
+        required: false
+      - path: .env
+        required: false
+    environment:
+      RAILS_ENV: production
+      DATABASE_URL: postgresql://${DB_USERNAME:-salespoint}:${DB_PASSWORD:-Password@123}@postgres:5432/${DB_NAME:-salespoints_prod}
+      WHATSAPP_WORKER_THREADS: ${WHATSAPP_WORKER_THREADS:-5}
+      DB_POOL: 10
+    depends_on:
+      web:
+        condition: service_healthy
+    networks:
+      - salespoints_net
+
+  # 5. Dedicated Solid Queue Worker: Google Maps & Broadcast
+  worker_broadcast:
+    image: salespoints_app:latest
+    container_name: salespoints_worker_broadcast
+    restart: unless-stopped
+    command: ["bundle", "exec", "solid_queue", "start", "--config=config/solid_queue/broadcast.yml"]
+    env_file:
+      - path: .env.production
+        required: false
+      - path: .env
+        required: false
+    environment:
+      RAILS_ENV: production
+      DATABASE_URL: postgresql://${DB_USERNAME:-salespoint}:${DB_PASSWORD:-Password@123}@postgres:5432/${DB_NAME:-salespoints_prod}
+      BROADCAST_WORKER_THREADS: ${BROADCAST_WORKER_THREADS:-6}
+      DB_POOL: 10
+    depends_on:
+      web:
+        condition: service_healthy
+    networks:
+      - salespoints_net
+
+  # 6. Dedicated Solid Queue Worker: Notification & SMTP Mails
+  worker_notifications:
+    image: salespoints_app:latest
+    container_name: salespoints_worker_notifications
+    restart: unless-stopped
+    command: ["bundle", "exec", "solid_queue", "start", "--config=config/solid_queue/notifications.yml"]
+    env_file:
+      - path: .env.production
+        required: false
+      - path: .env
+        required: false
+    environment:
+      RAILS_ENV: production
+      DATABASE_URL: postgresql://${DB_USERNAME:-salespoint}:${DB_PASSWORD:-Password@123}@postgres:5432/${DB_NAME:-salespoints_prod}
+      NOTIFICATIONS_WORKER_THREADS: ${NOTIFICATIONS_WORKER_THREADS:-5}
+      DB_POOL: 10
+    depends_on:
+      web:
+        condition: service_healthy
+    networks:
+      - salespoints_net
+
+  # 7. Dedicated Solid Queue Worker: PDF & Reports Generation
+  worker_reports:
+    image: salespoints_app:latest
+    container_name: salespoints_worker_reports
+    restart: unless-stopped
+    command: ["bundle", "exec", "solid_queue", "start", "--config=config/solid_queue/reports.yml"]
+    env_file:
+      - path: .env.production
+        required: false
+      - path: .env
+        required: false
+    environment:
+      RAILS_ENV: production
+      DATABASE_URL: postgresql://${DB_USERNAME:-salespoint}:${DB_PASSWORD:-Password@123}@postgres:5432/${DB_NAME:-salespoints_prod}
+      REPORTS_WORKER_THREADS: ${REPORTS_WORKER_THREADS:-3}
+      DB_POOL: 8
+    depends_on:
+      web:
+        condition: service_healthy
+    networks:
+      - salespoints_net
+
+  # 8. Solid Queue Dispatcher & Cron Scheduler
+  worker_scheduler:
+    image: salespoints_app:latest
+    container_name: salespoints_worker_scheduler
+    restart: unless-stopped
+    command: ["bundle", "exec", "solid_queue", "start", "--config=config/solid_queue/scheduler.yml"]
+    env_file:
+      - path: .env.production
+        required: false
+      - path: .env
+        required: false
+    environment:
+      RAILS_ENV: production
+      DATABASE_URL: postgresql://${DB_USERNAME:-salespoint}:${DB_PASSWORD:-Password@123}@postgres:5432/${DB_NAME:-salespoints_prod}
+      DB_POOL: 5
+    depends_on:
+      web:
+        condition: service_healthy
+    networks:
+      - salespoints_net
+
+  # 9. Nginx Reverse Proxy
+  nginx:
+    image: nginx:alpine
+    container_name: salespoints_nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/conf.d:/etc/nginx/conf.d:ro
+      - certbot_www:/var/www/certbot:ro
+      - certbot_conf:/etc/letsencrypt:ro
+    depends_on:
+      web:
+        condition: service_healthy
+    networks:
+      - salespoints_net
+
+volumes:
+  pgdata:
+    driver: local
+  certbot_www:
+    driver: local
+  certbot_conf:
+    driver: local
+
+networks:
+  salespoints_net:
+    driver: bridge
