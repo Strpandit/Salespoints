@@ -4,14 +4,14 @@ services:
     container_name: salespoints_postgres
     restart: unless-stopped
     environment:
-      POSTGRES_DB: ${DB_NAME:-salespoints_prod}
-      POSTGRES_USER: ${DB_USERNAME:-salespoint}
-      POSTGRES_PASSWORD: ${DB_PASSWORD:-Password@123}
+      POSTGRES_DB: ${DB_NAME:-salespoint_prod}
+      POSTGRES_USER: ${DB_USERNAME:-salespoints}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-Salespoints@9261}
       PGDATA: /var/lib/postgresql/data/pgdata
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${DB_USERNAME:-salespoint} -d ${DB_NAME:-salespoints_prod}"]
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USERNAME:-salespoints} -d ${DB_NAME:-salespoint_prod}"]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -33,7 +33,7 @@ services:
         required: false
     environment:
       RAILS_ENV: production
-      DATABASE_URL: postgresql://${DB_USERNAME:-salespoint}:${DB_PASSWORD:-Password@123}@postgres:5432/${DB_NAME:-salespoints_prod}
+      DATABASE_URL: postgresql://${DB_USERNAME:-salespoints}:${DB_PASSWORD:-Salespoints@9261}@postgres:5432/${DB_NAME:-salespoint_prod}
       RAILS_MAX_THREADS: 5
       WEB_CONCURRENCY: 2
       DB_POOL: 15
@@ -61,7 +61,7 @@ services:
         required: false
     environment:
       RAILS_ENV: production
-      DATABASE_URL: postgresql://${DB_USERNAME:-salespoint}:${DB_PASSWORD:-Password@123}@postgres:5432/${DB_NAME:-salespoints_prod}
+      DATABASE_URL: postgresql://${DB_USERNAME:-salespoints}:${DB_PASSWORD:-Salespoints@9261}@postgres:5432/${DB_NAME:-salespoint_prod}
       DB_POOL: 20
     depends_on:
       web:
