@@ -6,7 +6,9 @@ module Api
     before_action :set_filter, only: [:show, :update, :destroy]
 
     def index
-      filters = CatFilter.all.order(created_at: :desc).page(params[:page]).per(params[:per_page] || 20)
+      filters = CatFilter.all
+      filters = filters.where(category_id: params[:category_id]) if params[:category_id].present?
+      filters = filters.order(display_order: :asc, created_at: :desc).page(params[:page]).per(params[:per_page] || 20)
       if filters.exists?
         render json: serialize_resource(filters, CatFilterSerializer).merge(
           meta: {
@@ -16,14 +18,17 @@ module Api
             total_pages: filters.total_pages,
             total_count: filters.total_count
           },
-          message: "Fiters fetched successfully" ), status: :ok
+          message: "Filters fetched successfully"
+        ), status: :ok
       else
         render json: { error: "No filters found" }, status: :not_found
       end
     end
 
     def active_filters
-      filters = CatFilter.where(is_filterable: true).order(created_at: :desc).page(params[:page]).per(params[:per_page] || 20)
+      filters = CatFilter.where(is_filterable: true)
+      filters = filters.where(category_id: params[:category_id]) if params[:category_id].present?
+      filters = filters.order(display_order: :asc, created_at: :desc).page(params[:page]).per(params[:per_page] || 20)
       if filters.exists?
         render json: serialize_resource(filters, CatFilterSerializer).merge(
           meta: {
@@ -33,7 +38,8 @@ module Api
             total_pages: filters.total_pages,
             total_count: filters.total_count
           },
-          message: "Active Fiters fetched successfully" ), status: :ok
+          message: "Active Filters fetched successfully"
+        ), status: :ok
       else
         render json: { error: "No active filters found" }, status: :not_found
       end
@@ -72,17 +78,24 @@ module Api
     private
 
     def filter_params
-      params.require(:cat_filter).permit(:name, :data_type, :is_filterable, :category_id)
+      permitted = params.require(:cat_filter).permit(
+        :name, :data_type, :is_filterable, :category_id,
+        :is_mandatory, :unit, :display_order, options: []
+      )
+      if params[:cat_filter][:options].is_a?(String)
+        permitted[:options] = params[:cat_filter][:options].split(",").map(&:strip).reject(&:blank?)
+      end
+      permitted
     end
 
     def set_filter
       @filter = CatFilter.find_by(id: params[:id])
-      render json: { error: "Filter not found"}, status: :not_found unless @filter
+      render json: { error: "Filter not found" }, status: :not_found unless @filter
     end
 
     def check_permission
-      unless current_admin.can_access?(:cat_filters)
-        render json: { error: "You do not have permission to manage filters"}, status: :forbidden
+      unless current_admin.can_access?(:cat_filters) && current_admin.can_access?(:categories)
+        render json: { error: "You do not have permission to manage filters. Both 'filters' and 'categories' permissions are required." }, status: :forbidden
       end
     end
 

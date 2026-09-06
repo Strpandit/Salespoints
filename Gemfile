@@ -83,3 +83,4 @@ gem 'prawn-table'
 gem 'caxlsx'
 gem "matrix", "~> 0.4.3"
 gem 'geocoder'
+gem "aws-sdk-s3", require: false

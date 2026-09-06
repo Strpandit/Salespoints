@@ -14,10 +14,9 @@ if [ -f /rails/tmp/pids/server.pid ]; then
   rm -f /rails/tmp/pids/server.pid
 fi
 
-# If running the rails server then create or migrate existing database
 if [[ "$*" == *"rails server"* ]] || [[ "$*" == *"thrust"* ]]; then
   echo "=> Running database preparation (db:prepare)..."
-  ./bin/rails db:prepare || echo "Warning: db:prepare finished with warnings or database already prepared."
+  ./bin/rails db:prepare
 fi
 
 exec "${@}"

@@ -1,0 +1,124 @@
+# =============================================================================
+#  HTTPS vhost for api.salespoints.in
+#
+#  DO NOT enable this until a TLS certificate exists, otherwise nginx will
+#  crash-loop on missing cert files and take the whole stack down.
+#
+#  Enable (run on the server, in the project dir):
+#     1. Make sure DNS api.salespoints.in -> server IP, and the HTTP stack is up.
+#     2. Issue the cert:
+#          docker compose --profile ssl run --rm certbot certonly \
+#            --webroot -w /var/www/certbot \
+#            -d api.salespoints.in --email you@example.com --agree-tos --no-eff-email
+#     3. Swap this file in for the HTTP-only one and reload:
+#          mv nginx/conf.d/salespoints.conf          nginx/conf.d/salespoints.conf.http-only
+#          mv nginx/conf.d/salespoints-ssl.conf.disabled nginx/conf.d/salespoints.conf
+#          docker compose exec nginx nginx -s reload
+#  Renewal: docker compose --profile ssl run --rm certbot renew  (cron it), then
+#           docker compose exec nginx nginx -s reload
+# =============================================================================
+
+upstream rails_app {
+    server web:80;
+    keepalive 32;
+}
+
+# ---- HTTP: ACME + redirect everything else to HTTPS ----
+server {
+    listen 80;
+    server_name api.salespoints.in;
+
+    location /.well-known/acme-challenge/ {
+        root /var/www/certbot;
+    }
+
+    location = /up {
+        proxy_pass http://rails_app/up;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        access_log off;
+    }
+
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+
+# ---- HTTPS ----
+server {
+    listen 443 ssl;
+    http2 on;
+    server_name api.salespoints.in;
+
+    ssl_certificate     /etc/letsencrypt/live/api.salespoints.in/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/api.salespoints.in/privkey.pem;
+    ssl_protocols       TLSv1.2 TLSv1.3;
+    ssl_ciphers         HIGH:!aNULL:!MD5;
+    ssl_prefer_server_ciphers on;
+    ssl_session_cache   shared:SSL:10m;
+    ssl_session_timeout 1d;
+
+    add_header Strict-Transport-Security "max-age=31536000" always;
+
+    location = /up {
+        proxy_pass http://rails_app/up;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-Proto https;
+        access_log off;
+    }
+
+    # Webhooks — no rate limiting (see notes in the HTTP-only config)
+    location = /api/payments/cashfree/webhook {
+        proxy_pass http://rails_app;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_read_timeout 60s;
+    }
+    location = /api/whatsapp/webhook {
+        proxy_pass http://rails_app;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_read_timeout 60s;
+    }
+
+    location /cable {
+        proxy_pass http://rails_app/cable;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "Upgrade";
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_read_timeout 3600s;
+        proxy_send_timeout 3600s;
+    }
+
+    location / {
+        limit_req zone=api_limit burst=100 nodelay;
+        limit_req_status 429;
+
+        proxy_pass http://rails_app;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header X-Forwarded-Host $host;
+        proxy_set_header X-Forwarded-Port 443;
+
+        proxy_connect_timeout 60s;
+        proxy_send_timeout 120s;
+        proxy_read_timeout 120s;
+
+        proxy_buffering on;
+        proxy_buffer_size 128k;
+        proxy_buffers 4 256k;
+        proxy_busy_buffers_size 256k;
+    }
+}

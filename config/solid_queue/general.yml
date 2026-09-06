@@ -1,0 +1,23 @@
+default: &default
+  dispatchers:
+    - polling_interval: 1
+      batch_size: 500
+      concurrency_maintenance_interval: 300
+  workers:
+    - queues: [ "notifications_mail", "mailers", "notifications", "default", "geo_broadcast", "broadcast", "cleanup", "scheduled" ]
+      threads: <%= ENV.fetch("GENERAL_WORKER_THREADS", 6) %>
+      processes: <%= ENV.fetch("GENERAL_WORKER_PROCESSES", 1) %>
+      polling_interval: 0.2
+    - queues: [ "pdf_reports", "reports" ]
+      threads: <%= ENV.fetch("REPORTS_WORKER_THREADS", 3) %>
+      processes: <%= ENV.fetch("REPORTS_WORKER_PROCESSES", 1) %>
+      polling_interval: 0.5
+
+production:
+  <<: *default
+
+development:
+  <<: *default
+
+test:
+  <<: *default

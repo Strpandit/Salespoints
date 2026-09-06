@@ -3,6 +3,12 @@ services:
     image: postgres:16-alpine
     container_name: salespoints_postgres
     restart: unless-stopped
+    command:
+      - "postgres"
+      - "-c"
+      - "max_connections=120"
+      - "-c"
+      - "shared_buffers=192MB"
     environment:
       POSTGRES_DB: ${DB_NAME:-salespoint_prod}
       POSTGRES_USER: ${DB_USERNAME:-salespoints}
@@ -14,7 +20,8 @@ services:
       test: ["CMD-SHELL", "pg_isready -U ${DB_USERNAME:-salespoints} -d ${DB_NAME:-salespoint_prod}"]
       interval: 5s
       timeout: 5s
-      retries: 5
+      retries: 10
+    mem_limit: 1g
     networks:
       - salespoints_net
 
@@ -33,27 +40,27 @@ services:
         required: false
     environment:
       RAILS_ENV: production
-      DATABASE_URL: postgresql://${DB_USERNAME:-salespoints}:${DB_PASSWORD:-Salespoints@9261}@postgres:5432/${DB_NAME:-salespoint_prod}
-      RAILS_MAX_THREADS: 5
-      WEB_CONCURRENCY: 2
-      DB_POOL: 15
+      RAILS_MAX_THREADS: ${RAILS_MAX_THREADS:-5}
+      WEB_CONCURRENCY: ${WEB_WORKERS:-2}
+      DB_POOL: ${WEB_DB_POOL:-8}
     depends_on:
       postgres:
         condition: service_healthy
+    mem_limit: 1280m
     networks:
       - salespoints_net
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:80/up || exit 1"]
-      interval: 10s
+      test: ["CMD-SHELL", "curl -fsS http://localhost:80/up || exit 1"]
+      interval: 15s
       timeout: 5s
-      retries: 3
-      start_period: 30s
+      retries: 5
+      start_period: 150s
 
   worker_all:
     image: salespoints_app:latest
     container_name: salespoints_worker_all
     restart: unless-stopped
-    command: ["bundle", "exec", "solid_queue", "start", "--config=config/queue.yml"]
+    command: ["./bin/rails", "solid_queue:start"]
     env_file:
       - path: .env.production
         required: false
@@ -61,11 +68,13 @@ services:
         required: false
     environment:
       RAILS_ENV: production
-      DATABASE_URL: postgresql://${DB_USERNAME:-salespoints}:${DB_PASSWORD:-Salespoints@9261}@postgres:5432/${DB_NAME:-salespoint_prod}
-      DB_POOL: 20
+      SOLID_QUEUE_CONFIG: config/queue.yml
+      SOLID_QUEUE_RECURRING_SCHEDULE: config/recurring.yml
+      DB_POOL: ${WORKER_ALL_DB_POOL:-25}
     depends_on:
       web:
         condition: service_healthy
+    mem_limit: 2g
     networks:
       - salespoints_net
 
@@ -79,14 +88,19 @@ services:
     volumes:
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
       - ./nginx/conf.d:/etc/nginx/conf.d:ro
+      - certbot_www:/var/www/certbot:ro
+      - certbot_conf:/etc/letsencrypt:ro
     depends_on:
       web:
-        condition: service_healthy
+        condition: service_started
+    mem_limit: 128m
     networks:
       - salespoints_net
 
 volumes:
   pgdata:
+  certbot_www:
+  certbot_conf:
 
 networks:
   salespoints_net:

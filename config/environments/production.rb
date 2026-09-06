@@ -51,8 +51,6 @@ Rails.application.configure do
 
   # Replace the default in-process and non-durable queuing backend for Active Job.
   config.active_job.queue_adapter = :solid_queue
-  config.solid_queue.connects_to = { database: { writing: :production, reading: :production } }
-  # config.solid_queue.connects_to = { database: { writing: :queue } }
 
   # Route ActionMailer background deliveries to dedicated notifications_mail queue
   config.action_mailer.deliver_later_queue_name = :notifications_mail

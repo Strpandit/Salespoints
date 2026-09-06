@@ -62,7 +62,7 @@ class DeliveryOrderPdf
       header_text = <<~TEXT
         <b>SALESPOINTS INDIA PRIVATE LIMITED</b>
         Reg. Off: Prop No-49, Kh No. 70, Road Sadatpur, Karawal Nagar, New Delhi - 110094
-        support.salespoints.in@gmail.com | +91-8368835228 | www.salespoints.in
+        support@salespoints.in | +91-8368835228 | www.salespoints.in
         GSTIN - 07ABTCS6593H1ZH | CIN - U46524DC2026PTC471107
       TEXT
 
@@ -213,7 +213,7 @@ class DeliveryOrderPdf
       "2. Products must be delivered strictly to the Customer Delivery Address mentioned above.",
       "3. Before handing over goods, verified serial numbers/IMEI (where applicable) must be verified.",
       "4. Seller is responsible for ensuring original packaging and intact warranty seals during dispatch.",
-      "5. In case of delivery failure, customer refusal, or address untraceability, contact SalesPoints support immediately at support.salespoints.in@gmail.com.",
+      "5. In case of delivery failure, customer refusal, or address untraceability, contact SalesPoints support immediately at support@salespoints.in.",
       "6. SalesPoints India Private Limited acts as the marketplace intermediator."
     ]
 

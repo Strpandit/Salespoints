@@ -1,9 +1,18 @@
 services:
-  # 1. PostgreSQL Database Service
   postgres:
     image: postgres:16-alpine
     container_name: salespoints_postgres
     restart: unless-stopped
+    command:
+      - "postgres"
+      - "-c"
+      - "max_connections=200"
+      - "-c"
+      - "shared_buffers=256MB"
+      - "-c"
+      - "effective_cache_size=1GB"
+      - "-c"
+      - "work_mem=8MB"
     environment:
       POSTGRES_DB: ${DB_NAME:-salespoint_prod}
       POSTGRES_USER: ${DB_USERNAME:-salespoints}
@@ -17,11 +26,11 @@ services:
       test: ["CMD-SHELL", "pg_isready -U ${DB_USERNAME:-salespoints} -d ${DB_NAME:-salespoint_prod}"]
       interval: 5s
       timeout: 5s
-      retries: 5
+      retries: 10
+    mem_limit: 1536m
     networks:
       - salespoints_net
 
-  # 2. Rails Web API Service (Puma + Thruster)
   web:
     build:
       context: .
@@ -37,28 +46,27 @@ services:
         required: false
     environment:
       RAILS_ENV: production
-      DATABASE_URL: postgresql://${DB_USERNAME:-salespoints}:${DB_PASSWORD:-Salespoints@9261}@postgres:5432/${DB_NAME:-salespoint_prod}
-      RAILS_MAX_THREADS: ${WEB_CONCURRENCY_THREADS:-5}
+      RAILS_MAX_THREADS: ${RAILS_MAX_THREADS:-5}
       WEB_CONCURRENCY: ${WEB_WORKERS:-2}
-      DB_POOL: 15
+      DB_POOL: ${WEB_DB_POOL:-8}
     depends_on:
       postgres:
         condition: service_healthy
+    mem_limit: 1280m
     networks:
       - salespoints_net
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:80/up || exit 1"]
-      interval: 10s
+      test: ["CMD-SHELL", "curl -fsS http://localhost:80/up || exit 1"]
+      interval: 15s
       timeout: 5s
-      retries: 3
-      start_period: 30s
+      retries: 5
+      start_period: 150s
 
-  # 3. Dedicated Solid Queue Worker: Payment Gateway
   worker_payment:
     image: salespoints_app:latest
     container_name: salespoints_worker_payment
     restart: unless-stopped
-    command: ["bundle", "exec", "solid_queue", "start", "--config=config/solid_queue/payments.yml"]
+    command: ["./bin/rails", "solid_queue:start"]
     env_file:
       - path: .env.production
         required: false
@@ -66,21 +74,21 @@ services:
         required: false
     environment:
       RAILS_ENV: production
-      DATABASE_URL: postgresql://${DB_USERNAME:-salespoints}:${DB_PASSWORD:-Salespoints@9261}@postgres:5432/${DB_NAME:-salespoint_prod}
+      SOLID_QUEUE_CONFIG: config/solid_queue/payments.yml
+      SOLID_QUEUE_SKIP_RECURRING: "true"
       PAYMENT_WORKER_THREADS: ${PAYMENT_WORKER_THREADS:-5}
-      DB_POOL: 10
+      DB_POOL: ${PAYMENT_DB_POOL:-8}
     depends_on:
       web:
         condition: service_healthy
+    mem_limit: 640m
     networks:
       - salespoints_net
-
-  # 4. Dedicated Solid Queue Worker: Meta WhatsApp Cloud API
   worker_whatsapp:
     image: salespoints_app:latest
     container_name: salespoints_worker_whatsapp
     restart: unless-stopped
-    command: ["bundle", "exec", "solid_queue", "start", "--config=config/solid_queue/whatsapp.yml"]
+    command: ["./bin/rails", "solid_queue:start"]
     env_file:
       - path: .env.production
         required: false
@@ -88,21 +96,22 @@ services:
         required: false
     environment:
       RAILS_ENV: production
-      DATABASE_URL: postgresql://${DB_USERNAME:-salespoints}:${DB_PASSWORD:-Salespoints@9261}@postgres:5432/${DB_NAME:-salespoint_prod}
+      SOLID_QUEUE_CONFIG: config/solid_queue/whatsapp.yml
+      SOLID_QUEUE_SKIP_RECURRING: "true"
       WHATSAPP_WORKER_THREADS: ${WHATSAPP_WORKER_THREADS:-5}
-      DB_POOL: 10
+      DB_POOL: ${WHATSAPP_DB_POOL:-8}
     depends_on:
       web:
         condition: service_healthy
+    mem_limit: 640m
     networks:
       - salespoints_net
 
-  # 5. Dedicated Solid Queue Worker: Google Maps & Broadcast
-  worker_broadcast:
+  worker_general:
     image: salespoints_app:latest
-    container_name: salespoints_worker_broadcast
+    container_name: salespoints_worker_general
     restart: unless-stopped
-    command: ["bundle", "exec", "solid_queue", "start", "--config=config/solid_queue/broadcast.yml"]
+    command: ["./bin/rails", "solid_queue:start"]
     env_file:
       - path: .env.production
         required: false
@@ -110,81 +119,19 @@ services:
         required: false
     environment:
       RAILS_ENV: production
-      DATABASE_URL: postgresql://${DB_USERNAME:-salespoints}:${DB_PASSWORD:-Salespoints@9261}@postgres:5432/${DB_NAME:-salespoint_prod}
-      BROADCAST_WORKER_THREADS: ${BROADCAST_WORKER_THREADS:-6}
-      DB_POOL: 10
-    depends_on:
-      web:
-        condition: service_healthy
-    networks:
-      - salespoints_net
-
-  # 6. Dedicated Solid Queue Worker: Notification & SMTP Mails
-  worker_notifications:
-    image: salespoints_app:latest
-    container_name: salespoints_worker_notifications
-    restart: unless-stopped
-    command: ["bundle", "exec", "solid_queue", "start", "--config=config/solid_queue/notifications.yml"]
-    env_file:
-      - path: .env.production
-        required: false
-      - path: .env
-        required: false
-    environment:
-      RAILS_ENV: production
-      DATABASE_URL: postgresql://${DB_USERNAME:-salespoints}:${DB_PASSWORD:-Salespoints@9261}@postgres:5432/${DB_NAME:-salespoint_prod}
-      NOTIFICATIONS_WORKER_THREADS: ${NOTIFICATIONS_WORKER_THREADS:-5}
-      DB_POOL: 10
-    depends_on:
-      web:
-        condition: service_healthy
-    networks:
-      - salespoints_net
-
-  # 7. Dedicated Solid Queue Worker: PDF & Reports Generation
-  worker_reports:
-    image: salespoints_app:latest
-    container_name: salespoints_worker_reports
-    restart: unless-stopped
-    command: ["bundle", "exec", "solid_queue", "start", "--config=config/solid_queue/reports.yml"]
-    env_file:
-      - path: .env.production
-        required: false
-      - path: .env
-        required: false
-    environment:
-      RAILS_ENV: production
-      DATABASE_URL: postgresql://${DB_USERNAME:-salespoints}:${DB_PASSWORD:-Salespoints@9261}@postgres:5432/${DB_NAME:-salespoint_prod}
+      SOLID_QUEUE_CONFIG: config/solid_queue/general.yml
+      SOLID_QUEUE_RECURRING_SCHEDULE: config/recurring.yml
+      GENERAL_WORKER_THREADS: ${GENERAL_WORKER_THREADS:-6}
       REPORTS_WORKER_THREADS: ${REPORTS_WORKER_THREADS:-3}
-      DB_POOL: 8
+      DB_POOL: ${GENERAL_DB_POOL:-12}
     depends_on:
       web:
         condition: service_healthy
+    mem_limit: 1536m
     networks:
       - salespoints_net
 
-  # 8. Solid Queue Dispatcher & Cron Scheduler
-  worker_scheduler:
-    image: salespoints_app:latest
-    container_name: salespoints_worker_scheduler
-    restart: unless-stopped
-    command: ["bundle", "exec", "solid_queue", "start", "--config=config/solid_queue/scheduler.yml"]
-    env_file:
-      - path: .env.production
-        required: false
-      - path: .env
-        required: false
-    environment:
-      RAILS_ENV: production
-      DATABASE_URL: postgresql://${DB_USERNAME:-salespoints}:${DB_PASSWORD:-Salespoints@9261}@postgres:5432/${DB_NAME:-salespoint_prod}
-      DB_POOL: 5
-    depends_on:
-      web:
-        condition: service_healthy
-    networks:
-      - salespoints_net
-
-  # 9. Nginx Reverse Proxy
+  # 6. Nginx reverse proxy
   nginx:
     image: nginx:alpine
     container_name: salespoints_nginx
@@ -199,9 +146,21 @@ services:
       - certbot_conf:/etc/letsencrypt:ro
     depends_on:
       web:
-        condition: service_healthy
+        condition: service_started
+    mem_limit: 128m
     networks:
       - salespoints_net
+
+  # 7. Certbot (on-demand only). Enable with: docker compose --profile ssl run --rm certbot ...
+  #    See DEPLOYMENT_GUIDE.md "SSL Certificate Setup".
+  certbot:
+    image: certbot/certbot:latest
+    container_name: salespoints_certbot
+    profiles: ["ssl"]
+    volumes:
+      - certbot_www:/var/www/certbot
+      - certbot_conf:/etc/letsencrypt
+    entrypoint: ["certbot"]
 
 volumes:
   pgdata:

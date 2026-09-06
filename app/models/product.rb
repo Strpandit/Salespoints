@@ -22,6 +22,7 @@ class Product < ApplicationRecord
   validate :catalog_media_presence
   validate :media_files_valid
   validate :brand_category_relation
+  validate :validate_mandatory_category_specifications
 
   scope :featured, -> { where(is_featured: true) }
   scope :new_arrivals, -> { where('created_at >= ?', 15.days.ago) } 
@@ -136,6 +137,31 @@ class Product < ApplicationRecord
 
     unless brand.categories.exists?(id: category_id)
       errors.add(:category, "does not belong to selected brand")
+    end
+  end
+
+  def validate_mandatory_category_specifications
+    return if category_id.blank?
+
+    mandatory_filters = CatFilter.where(category_id: category_id, is_mandatory: true)
+    return if mandatory_filters.empty?
+
+    active_specs = product_specifications.reject(&:marked_for_destruction?)
+    spec_map = active_specs.each_with_object({}) do |spec, h|
+      h[spec.key.to_s.strip.downcase] = spec.value.to_s.strip if spec.key.present?
+    end
+
+    missing = []
+    mandatory_filters.each do |filter|
+      key_name = filter.name.to_s.strip.downcase
+      val = spec_map[key_name]
+      if val.blank?
+        missing << filter.name
+      end
+    end
+
+    if missing.any?
+      errors.add(:base, "Missing required specifications for #{category&.name || 'category'}: #{missing.join(', ')}")
     end
   end
 
