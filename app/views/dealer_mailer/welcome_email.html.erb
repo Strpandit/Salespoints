@@ -1,146 +1,94 @@
-<!DOCTYPE html>
-<html>
-  <head>
-    <meta charset="UTF-8">
-    <style>
-      body {
-        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        margin: 0;
-        padding: 20px;
-      }
-      .container {
-        max-width: 600px;
-        margin: 0 auto;
-        background: white;
-        border-radius: 10px;
-        overflow: hidden;
-        box-shadow: 0 10px 30px rgba(0,0,0,0.2);
-      }
-      .header {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        color: white;
-        padding: 40px 20px;
-        text-align: center;
-      }
-      .header h1 {
-        margin: 0;
-        font-size: 28px;
-      }
-      .content {
-        padding: 40px;
-      }
-      .greeting {
-        font-size: 20px;
-        color: #333;
-        margin-bottom: 20px;
-      }
-      .credentials {
-        background: #f8f9fa;
-        border-left: 4px solid #667eea;
-        padding: 20px;
-        margin: 30px 0;
-        border-radius: 5px;
-      }
-      .credentials-label {
-        font-size: 12px;
-        color: #666;
-        text-transform: uppercase;
-        letter-spacing: 1px;
-      }
-      .credentials-value {
-        font-size: 16px;
-        color: #333;
-        font-weight: bold;
-        margin: 10px 0;
-        word-break: break-all;
-      }
-      .button {
-        display: inline-block;
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        color: white;
-        text-decoration: none;
-        padding: 15px 40px;
-        border-radius: 5px;
-        margin: 20px 0;
-        font-weight: bold;
-      }
-      .button:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
-      }
-      .footer {
-        background: #f8f9fa;
-        padding: 20px;
-        text-align: center;
-        font-size: 12px;
-        color: #666;
-        border-top: 1px solid #eee;
-      }
-      .important {
-        color: #d85030;
-        font-weight: bold;
-      }
-    </style>
-  </head>
-  <body>
-    <div class="container">
-      <div class="header">
-        <h1>🎉 Welcome to SalesPoints</h1>
-        <p>Dealer Platform</p>
-      </div>
+<% dealer_first_name = @dealer.try(:first_name).presence || "Dealer" %>
+<% dealer_full_name = @dealer.try(:full_name).presence || "#{dealer_first_name} #{@dealer.try(:last_name)}".strip %>
+<% login_url = ENV['DEALER_LOGIN_URL'] || 'https://salespoints.in/dealer/login' %>
 
-      <div class="content">
-        <div class="greeting">
-          Hello <strong><%= @dealer.first_name %> <%= @dealer.last_name %></strong>,
-        </div>
+<!-- Header Banner -->
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background: linear-gradient(135deg, #0f172a 0%, #1e3a8a 100%); background-color: #0f172a; padding: 36px 28px; text-align: center;">
+  <tr>
+    <td align="center">
+      <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin-bottom: 12px;">
+        <tr>
+          <td style="background-color: rgba(59, 130, 246, 0.2); border: 1px solid #3b82f6; border-radius: 20px; padding: 4px 14px; font-size: 11px; font-weight: 700; color: #93c5fd; text-transform: uppercase; letter-spacing: 1px;">
+            Account Created
+          </td>
+        </tr>
+      </table>
+      <h1 style="margin: 0; font-size: 24px; font-weight: 800; color: #ffffff; letter-spacing: -0.5px; line-height: 1.3;">
+        Welcome to SalesPoints
+      </h1>
+      <p style="margin: 8px 0 0 0; font-size: 14px; color: #cbd5e1; line-height: 1.5;">
+        Your Partner Account Credentials
+      </p>
+    </td>
+  </tr>
+</table>
 
-        <p>
-          Thank you for registering as a dealer on <strong>SalesPoints</strong>! We're excited to have you on board.
-        </p>
+<!-- Main Content Area -->
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="padding: 32px 28px; background-color: #ffffff;">
+  <tr>
+    <td>
+      <p style="margin: 0 0 14px 0; font-size: 16px; font-weight: 600; color: #0f172a;">
+        Hello <%= dealer_full_name %>,
+      </p>
 
-        <p>
-          Your account has been created and is currently <strong>pending approval</strong>. Our admin team will review your information and you'll receive a notification once your account is activated.
-        </p>
+      <p style="margin: 0 0 20px 0; font-size: 14px; line-height: 1.6; color: #334155;">
+        Your SalesPoints dealer account has been set up. You can log in using the credentials below:
+      </p>
 
-        <div class="credentials">
-          <div class="credentials-label">Login Email</div>
-          <div class="credentials-value"><%= @email %></div>
+      <!-- Credentials Card -->
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; margin: 20px 0;">
+        <tr>
+          <td style="padding: 20px;">
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+              <tr>
+                <td style="padding: 6px 0;">
+                  <span style="font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px;">Registered Email</span><br>
+                  <strong style="font-size: 14px; color: #0f172a;"><%= @email %></strong>
+                </td>
+              </tr>
+              <% if @password.present? %>
+              <tr>
+                <td style="padding: 6px 0; border-top: 1px solid #e2e8f0;">
+                  <span style="font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px;">Temporary Password</span><br>
+                  <strong style="font-size: 15px; color: #1d4ed8; font-family: 'Courier New', Courier, monospace;"><%= @password %></strong>
+                </td>
+              </tr>
+              <% end %>
+            </table>
+          </td>
+        </tr>
+      </table>
 
-          <div class="credentials-label" style="margin-top: 20px;">Temporary Password</div>
-          <div class="credentials-value"><%= @password %></div>
+      <!-- CTA Button -->
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin: 28px 0;">
+        <tr>
+          <td align="center">
+            <table role="presentation" cellpadding="0" cellspacing="0" border="0">
+              <tr>
+                <td align="center" style="background-color: #1d4ed8; border-radius: 10px; box-shadow: 0 4px 12px rgba(29, 78, 216, 0.25);">
+                  <a href="<%= login_url %>" target="_blank" style="display: inline-block; padding: 14px 32px; font-size: 15px; font-weight: 700; color: #ffffff; text-decoration: none; border-radius: 10px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
+                    Log In to Dealer Portal &rarr;
+                  </a>
+                </td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+      </table>
 
-          <p style="color: #d85030; font-size: 12px; margin-top: 15px;">
-            ⚠️ <strong>Important:</strong> Please change your password immediately after your first login for security.
-          </p>
-        </div>
+      <!-- Note -->
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color: #fffbeb; border-left: 4px solid #f59e0b; border-radius: 6px; margin: 20px 0;">
+        <tr>
+          <td style="padding: 12px 16px; font-size: 13px; color: #92400e; line-height: 1.5;">
+            <strong>Security Tip:</strong> We recommend changing your password immediately after your first login in your Profile Settings.
+          </td>
+        </tr>
+      </table>
 
-        <p>
-          <a href="<%= ENV['DEALER_LOGIN_URL'] || 'https://salespoints.in/dealer/login' %>" class="button">
-            Go to Dealer Portal →
-          </a>
-        </p>
-
-        <h3>What's Next?</h3>
-        <ul>
-          <li>✓ Complete your profile with detailed business information</li>
-          <li>✓ Get approval from our admin team</li>
-          <li>✓ Start listing and selling products</li>
-          <li>✓ Manage your inventory and orders</li>
-        </ul>
-
-        <p>
-          If you need any assistance, please don't hesitate to contact our support team at 
-          <strong>support@salespoints.in</strong> or call us.
-        </p>
-
-        <p>Best regards,<br><strong>SalesPoints Team</strong></p>
-      </div>
-
-      <div class="footer">
-        <p>This is an automated email. Please do not reply directly to this email.</p>
-        <p>© 2026 SalesPoints. All rights reserved.</p>
-      </div>
-    </div>
-  </body>
-</html>
+      <p style="margin: 24px 0 0 0; font-size: 13px; line-height: 1.6; color: #475569;">
+        Best regards,<br>
+        <strong style="color: #0f172a;">The SalesPoints Team</strong>
+      </p>
+    </td>
+  </tr>
+</table>

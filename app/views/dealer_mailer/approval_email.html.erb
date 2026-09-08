@@ -1,157 +1,137 @@
-<!DOCTYPE html>
-<html>
-  <head>
-    <meta charset="UTF-8">
-    <style>
-      body {
-        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-        background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
-        margin: 0;
-        padding: 20px;
-      }
-      .container {
-        max-width: 600px;
-        margin: 0 auto;
-        background: white;
-        border-radius: 10px;
-        overflow: hidden;
-        box-shadow: 0 10px 30px rgba(0,0,0,0.2);
-      }
-      .header {
-        background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
-        color: white;
-        padding: 40px 20px;
-        text-align: center;
-      }
-      .header h1 {
-        margin: 0;
-        font-size: 32px;
-      }
-      .header p {
-        margin: 10px 0 0 0;
-        font-size: 16px;
-        opacity: 0.9;
-      }
-      .content {
-        padding: 40px;
-      }
-      .greeting {
-        font-size: 20px;
-        color: #333;
-        margin-bottom: 20px;
-      }
-      .success-box {
-        background: #e8f5e9;
-        border-left: 4px solid #38ef7d;
-        padding: 20px;
-        margin: 25px 0;
-        border-radius: 5px;
-      }
-      .success-box h3 {
-        color: #11998e;
-        margin: 0 0 10px 0;
-      }
-      .button {
-        display: inline-block;
-        background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
-        color: white;
-        text-decoration: none;
-        padding: 15px 40px;
-        border-radius: 5px;
-        margin: 20px 0;
-        font-weight: bold;
-      }
-      .features {
-        background: #f5f5f5;
-        padding: 20px;
-        border-radius: 5px;
-        margin: 20px 0;
-      }
-      .features ul {
-        margin: 10px 0;
-        padding-left: 20px;
-      }
-      .features li {
-        margin: 8px 0;
-      }
-      .footer {
-        background: #f8f9fa;
-        padding: 20px;
-        text-align: center;
-        font-size: 12px;
-        color: #666;
-        border-top: 1px solid #eee;
-      }
-    </style>
-  </head>
-  <body>
-    <div class="container">
-      <div class="header">
-        <h1>🎉 Congratulations!</h1>
-        <p>Your Account is Now Active</p>
-      </div>
+<% dealer_first_name = @dealer.try(:first_name).presence || "Dealer" %>
+<% dealer_full_name = @dealer.try(:full_name).presence || "#{dealer_first_name} #{@dealer.try(:last_name)}".strip %>
+<% login_url = ENV['DEALER_LOGIN_URL'] || 'https://salespoints.in/dealer/login' %>
 
-      <div class="content">
-        <div class="greeting">
-          Hi <strong><%= @dealer.first_name %> <%= @dealer.last_name %></strong>,
-        </div>
+<!-- Header Banner -->
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background: linear-gradient(135deg, #0f172a 0%, #1e3a8a 100%); background-color: #0f172a; padding: 36px 28px; text-align: center;">
+  <tr>
+    <td align="center">
+      <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin-bottom: 12px;">
+        <tr>
+          <td style="background-color: rgba(16, 185, 129, 0.2); border: 1px solid #10b981; border-radius: 20px; padding: 4px 14px; font-size: 11px; font-weight: 700; color: #34d399; text-transform: uppercase; letter-spacing: 1px;">
+            &#10003; Account Approved
+          </td>
+        </tr>
+      </table>
+      <h1 style="margin: 0; font-size: 26px; font-weight: 800; color: #ffffff; letter-spacing: -0.5px; line-height: 1.3;">
+        Welcome to SalesPoints
+      </h1>
+      <p style="margin: 8px 0 0 0; font-size: 14px; color: #cbd5e1; line-height: 1.5;">
+        Your Dealer Account is Officially Active &amp; Ready
+      </p>
+    </td>
+  </tr>
+</table>
 
-        <div class="success-box">
-          <h3>✓ Account Approved</h3>
-          <p>
-            Great news! Your SalesPoints dealer account has been <strong>approved by our admin team</strong>. 
-            Your account is now fully active and ready to use.
-          </p>
-        </div>
+<!-- Main Content Area -->
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="padding: 32px 28px; background-color: #ffffff;">
+  <tr>
+    <td>
+      <p style="margin: 0 0 16px 0; font-size: 16px; font-weight: 600; color: #0f172a;">
+        Hi <%= dealer_full_name %>,
+      </p>
 
-        <p>
-          You can now:
-        </p>
+      <p style="margin: 0 0 20px 0; font-size: 14px; line-height: 1.6; color: #334155;">
+        Great news! Your SalesPoints dealer application has been reviewed and <strong style="color: #059669;">approved by our administration team</strong>. You now have full access to start selling, managing your catalog, and receiving orders.
+      </p>
 
-        <div class="features">
-          <ul>
-            <li>📦 Add and manage your products</li>
-            <li>💰 Monitor your sales and earnings</li>
-            <li>📊 Track your inventory in real-time</li>
-            <li>🎯 Reach thousands of customers</li>
-            <li>📱 Manage orders and shipments</li>
-            <li>💬 Communicate with customers</li>
-          </ul>
-        </div>
+      <!-- Access Dashboard Button (Bulletproof table button) -->
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin: 28px 0;">
+        <tr>
+          <td align="center">
+            <table role="presentation" cellpadding="0" cellspacing="0" border="0">
+              <tr>
+                <td align="center" style="background-color: #1d4ed8; border-radius: 10px; box-shadow: 0 4px 12px rgba(29, 78, 216, 0.25);">
+                  <a href="<%= login_url %>" target="_blank" style="display: inline-block; padding: 14px 32px; font-size: 15px; font-weight: 700; color: #ffffff; text-decoration: none; border-radius: 10px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
+                    Access Dealer Dashboard &rarr;
+                  </a>
+                </td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+      </table>
 
-        <p>
-          <a href="<%= ENV['DEALER_LOGIN_URL'] || 'https://salespoints.in/dealer/login' %>" class="button">
-            Access Your Dashboard →
-          </a>
-        </p>
+      <!-- Capabilities Card -->
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; margin: 24px 0;">
+        <tr>
+          <td style="padding: 20px;">
+            <p style="margin: 0 0 12px 0; font-size: 13px; font-weight: 700; color: #475569; text-transform: uppercase; letter-spacing: 0.5px;">
+              What You Can Do Now:
+            </p>
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+              <tr>
+                <td style="padding: 6px 0; font-size: 14px; color: #1e293b; line-height: 1.5;">
+                  <span style="color: #2563eb; font-weight: bold; margin-right: 8px;">&bull;</span> List and manage your products and inventory
+                </td>
+              </tr>
+              <tr>
+                <td style="padding: 6px 0; font-size: 14px; color: #1e293b; line-height: 1.5;">
+                  <span style="color: #2563eb; font-weight: bold; margin-right: 8px;">&bull;</span> Receive B2B and retail orders with real-time updates
+                </td>
+              </tr>
+              <tr>
+                <td style="padding: 6px 0; font-size: 14px; color: #1e293b; line-height: 1.5;">
+                  <span style="color: #2563eb; font-weight: bold; margin-right: 8px;">&bull;</span> Track settlement cycles, earnings, and automated payouts
+                </td>
+              </tr>
+              <tr>
+                <td style="padding: 6px 0; font-size: 14px; color: #1e293b; line-height: 1.5;">
+                  <span style="color: #2563eb; font-weight: bold; margin-right: 8px;">&bull;</span> Manage store locations, delivery radius, and staff access
+                </td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+      </table>
 
-        <h3>Next Steps:</h3>
-        <ol>
-          <li><strong>Complete Your Profile</strong> - Add your business details and bank information</li>
-          <li><strong>Upload Your First Product</strong> - Start listing your products</li>
-          <li><strong>Set Up Shipping</strong> - Configure your delivery preferences</li>
-          <li><strong>Start Selling</strong> - Begin receiving orders from customers</li>
-        </ol>
+      <!-- Next Steps -->
+      <p style="margin: 24px 0 12px 0; font-size: 15px; font-weight: 700; color: #0f172a;">
+        Recommended Next Steps:
+      </p>
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom: 20px;">
+        <tr>
+          <td valign="top" width="28" style="padding: 6px 0; font-size: 13px; font-weight: 700; color: #2563eb;">1.</td>
+          <td style="padding: 6px 0; font-size: 13px; color: #334155; line-height: 1.5;">
+            <strong>Complete Profile Details:</strong> Ensure your GST, PAN, and bank details for settlements are accurate.
+          </td>
+        </tr>
+        <tr>
+          <td valign="top" width="28" style="padding: 6px 0; font-size: 13px; font-weight: 700; color: #2563eb;">2.</td>
+          <td style="padding: 6px 0; font-size: 13px; color: #334155; line-height: 1.5;">
+            <strong>Upload Products:</strong> Add your stock catalog with photos and competitive pricing.
+          </td>
+        </tr>
+        <tr>
+          <td valign="top" width="28" style="padding: 6px 0; font-size: 13px; font-weight: 700; color: #2563eb;">3.</td>
+          <td style="padding: 6px 0; font-size: 13px; color: #334155; line-height: 1.5;">
+            <strong>Set Service Radius:</strong> Configure delivery and store dispatch radiuses for local buyers.
+          </td>
+        </tr>
+      </table>
 
-        <p style="background: #fff3cd; padding: 15px; border-radius: 5px; border-left: 4px solid #ffc107;">
-          <strong>📧 Tip:</strong> Keep an eye on your inbox for order notifications and important updates about 
-          your account.
-        </p>
+      <!-- Pro Tip Box (Dark mode resilient with explicit colors) -->
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color: #fffbeb; border-left: 4px solid #f59e0b; border-radius: 6px; margin: 24px 0;">
+        <tr>
+          <td style="padding: 14px 18px;">
+            <p style="margin: 0; font-size: 13px; color: #92400e; line-height: 1.5;">
+              <strong style="color: #78350f; text-transform: uppercase; font-size: 11px; letter-spacing: 0.5px; background-color: #fef3c7; padding: 2px 6px; border-radius: 4px; margin-right: 6px;">PRO TIP</strong>
+              Keep an eye on your email inbox and WhatsApp for order notifications and inventory alerts.
+            </p>
+          </td>
+        </tr>
+      </table>
 
-        <p>
-          If you have any questions or need assistance, our support team is here to help. 
-          Contact us at <strong>support@salespoints.in</strong>
-        </p>
+      <!-- Assistance & Sign-off -->
+      <p style="margin: 24px 0 16px 0; font-size: 13px; line-height: 1.6; color: #64748b;">
+        Need help getting started? Our partner support team is here for you.<br>
+        Reach us at <a href="mailto:support@salespoints.in" style="color: #2563eb; font-weight: 600; text-decoration: underline;">support@salespoints.in</a>.
+      </p>
 
-        <p>
-          Welcome aboard!<br><strong>SalesPoints Team</strong>
-        </p>
-      </div>
-
-      <div class="footer">
-        <p>This is an automated email. Please do not reply directly to this email.</p>
-        <p>© 2026 SalesPoints. All rights reserved.</p>
-      </div>
-    </div>
-  </body>
-</html>
+      <p style="margin: 16px 0 0 0; font-size: 14px; font-weight: 600; color: #0f172a;">
+        Welcome aboard,<br>
+        <span style="color: #475569; font-weight: 500; font-size: 13px;">The SalesPoints Marketplace Team</span>
+      </p>
+    </td>
+  </tr>
+</table>
