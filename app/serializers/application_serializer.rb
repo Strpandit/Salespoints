@@ -36,12 +36,16 @@ class ApplicationSerializer
     end
   end
 
-  attr_reader :resource, :options, :object
+  attr_reader :resource, :object
 
   def initialize(resource, options = {})
     @resource = resource
-    @options = options || {}
+    @options = options.is_a?(Hash) ? options : {}
     @object = nil
+  end
+
+  def options
+    @options
   end
 
   def serializable_hash
@@ -75,7 +79,7 @@ class ApplicationSerializer
 
       payload[name] =
         if serializer_class
-          serializer_class.render(value, options.merge(include: nested_includes))
+          serializer_class.render(value, @options.merge(include: nested_includes))
         elsif config[:kind] == :has_many
           Array(value).map { |item| fallback_serialize(item) }
         else
@@ -89,23 +93,34 @@ class ApplicationSerializer
   end
 
   def read_attribute(name)
-    if respond_to?(name)
-      public_send(name)
+    sym = name.to_sym
+    if sym == :options
+      if self.class.instance_methods(false).include?(:options)
+        public_send(:options)
+      elsif object&.respond_to?(:options)
+        object.public_send(:options)
+      else
+        nil
+      end
+    elsif respond_to?(sym) && ![:resource, :object, :options].include?(sym)
+      public_send(sym)
+    elsif object&.respond_to?(sym)
+      object.public_send(sym)
     else
-      object.public_send(name)
+      nil
     end
   end
 
   def selected_associations
     associations = self.class._associations || {}
-    requested = Array(options[:include]).map { |entry| entry.to_s.split(".").first.to_sym }.uniq
+    requested = Array(@options[:include]).map { |entry| entry.to_s.split(".").first.to_sym }.uniq
     return associations if requested.empty?
 
     associations.slice(*requested)
   end
 
   def nested_includes_for(name)
-    Array(options[:include]).filter_map do |entry|
+    Array(@options[:include]).filter_map do |entry|
       parts = entry.to_s.split(".")
       next unless parts.first == name.to_s
       next if parts.length == 1
