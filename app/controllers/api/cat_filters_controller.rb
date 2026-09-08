@@ -6,43 +6,35 @@ module Api
     before_action :set_filter, only: [:show, :update, :destroy]
 
     def index
-      filters = CatFilter.all
+      filters = CatFilter.includes(:category)
       filters = filters.where(category_id: params[:category_id]) if params[:category_id].present?
       filters = filters.order(display_order: :asc, created_at: :desc).page(params[:page]).per(params[:per_page] || 20)
-      if filters.exists?
-        render json: serialize_resource(filters, CatFilterSerializer).merge(
-          meta: {
-            current_page: filters.current_page,
-            next_page: filters.next_page,
-            prev_page: filters.prev_page,
-            total_pages: filters.total_pages,
-            total_count: filters.total_count
-          },
-          message: "Filters fetched successfully"
-        ), status: :ok
-      else
-        render json: { error: "No filters found" }, status: :not_found
-      end
+      render json: serialize_resource(filters, CatFilterSerializer).merge(
+        meta: {
+          current_page: filters.current_page,
+          next_page: filters.next_page,
+          prev_page: filters.prev_page,
+          total_pages: filters.total_pages,
+          total_count: filters.total_count
+        },
+        message: "Filters fetched successfully"
+      ), status: :ok
     end
 
     def active_filters
-      filters = CatFilter.where(is_filterable: true)
+      filters = CatFilter.includes(:category).where(is_filterable: true)
       filters = filters.where(category_id: params[:category_id]) if params[:category_id].present?
       filters = filters.order(display_order: :asc, created_at: :desc).page(params[:page]).per(params[:per_page] || 20)
-      if filters.exists?
-        render json: serialize_resource(filters, CatFilterSerializer).merge(
-          meta: {
-            current_page: filters.current_page,
-            next_page: filters.next_page,
-            prev_page: filters.prev_page,
-            total_pages: filters.total_pages,
-            total_count: filters.total_count
-          },
-          message: "Active Filters fetched successfully"
-        ), status: :ok
-      else
-        render json: { error: "No active filters found" }, status: :not_found
-      end
+      render json: serialize_resource(filters, CatFilterSerializer).merge(
+        meta: {
+          current_page: filters.current_page,
+          next_page: filters.next_page,
+          prev_page: filters.prev_page,
+          total_pages: filters.total_pages,
+          total_count: filters.total_count
+        },
+        message: "Active Filters fetched successfully"
+      ), status: :ok
     end
 
     def show
