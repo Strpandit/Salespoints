@@ -97,6 +97,10 @@ class Dealer < ApplicationRecord
     )
   end
 
+  def otp_verified?
+    (password_digest.present? && otp_pin.blank?) || status == 'active'
+  end
+
   def orders
     sales_orders
   end

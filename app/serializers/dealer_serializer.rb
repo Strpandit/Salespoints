@@ -15,6 +15,6 @@ class DealerSerializer < ApplicationSerializer
   end
 
   def otp_verified
-    object.otp_pin.blank?
+    object.otp_verified?
   end
 end

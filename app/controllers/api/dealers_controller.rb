@@ -422,7 +422,7 @@ module Api
         return render json: { error: "Dealer is already processed" }, status: :unprocessable_entity
       end
 
-      if @dealer.otp_pin.present?
+      unless @dealer.otp_verified?
         return render json: { error: "Dealer must verify signup OTP before approval" }, status: :unprocessable_entity
       end
 
