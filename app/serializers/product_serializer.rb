@@ -15,6 +15,16 @@ class ProductSerializer < ApplicationSerializer
     end
   end
 
+  def product_specifications
+    object.product_specifications.map do |spec|
+      {
+        id: spec.id,
+        key: spec.key,
+        value: spec.value
+      }
+    end
+  end
+
   def media
     blobs = object.ordered_media_attachments.map(&:blob)
     build_media_payloads(blobs, primary_blob_id: object.primary_media_blob_id)
