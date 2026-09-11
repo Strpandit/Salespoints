@@ -13,7 +13,7 @@ class Product < ApplicationRecord
   has_many :dealer_products, dependent: :destroy
   has_many :reviews, dependent: :destroy
 
-  accepts_nested_attributes_for :product_specifications, allow_destroy: true, reject_if: :all_blank
+  accepts_nested_attributes_for :product_specifications, allow_destroy: true, reject_if: proc { |attrs| attrs['id'].blank? && attrs['key'].blank? && attrs['value'].blank? }
   accepts_nested_attributes_for :product_variants, allow_destroy: true, reject_if: :reject_blank_product_variant?
 
   validates :name, :slug, :sku, presence: true
