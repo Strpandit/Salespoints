@@ -5,6 +5,7 @@ class DealerProduct < ApplicationRecord
 
   has_many :reviews, dependent: :destroy
   has_many :wholesaler_posts, dependent: :destroy
+  has_many :dealer_offers, dependent: :destroy
 
   has_many :order_items, dependent: :nullify
   has_many :b2b_order_items, dependent: :nullify

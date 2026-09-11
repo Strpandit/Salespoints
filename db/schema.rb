@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.0].define(version: 2026_01_01_000048) do
+ActiveRecord::Schema[8.0].define(version: 2026_01_01_000050) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -420,6 +420,51 @@ ActiveRecord::Schema[8.0].define(version: 2026_01_01_000048) do
     t.index ["dealer_id"], name: "index_dealer_locations_on_dealer_id"
   end
 
+  create_table "dealer_offers", force: :cascade do |t|
+    t.bigint "dealer_id", null: false
+    t.bigint "dealer_product_id", null: false
+    t.bigint "product_id", null: false
+    t.bigint "product_variant_id", null: false
+    t.string "offer_name", null: false
+    t.string "scheme_category", null: false
+    t.string "product_condition", null: false
+    t.string "seller_code"
+    t.text "special_terms"
+    t.string "brand_name"
+    t.string "device_model"
+    t.string "variant_name"
+    t.string "ram_storage"
+    t.string "colour"
+    t.boolean "imei_required", default: false, null: false
+    t.string "warranty"
+    t.text "included_accessories"
+    t.boolean "return_replacement", default: false, null: false
+    t.decimal "mrp", precision: 12, scale: 2, default: "0.0", null: false
+    t.decimal "seller_price", precision: 12, scale: 2, default: "0.0", null: false
+    t.decimal "offer_price", precision: 12, scale: 2, default: "0.0", null: false
+    t.decimal "tax_rate", precision: 5, scale: 2
+    t.integer "available_quantity", default: 0, null: false
+    t.integer "sold_quantity", default: 0, null: false
+    t.datetime "offer_starts_at"
+    t.datetime "offer_ends_at"
+    t.string "pincodes", default: [], array: true
+    t.string "approve_status", default: "pending", null: false
+    t.boolean "is_active", default: true, null: false
+    t.text "rejection_reason"
+    t.datetime "reviewed_at"
+    t.bigint "reviewed_by_admin_id"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["approve_status", "is_active"], name: "index_dealer_offers_on_approve_status_and_is_active"
+    t.index ["dealer_id"], name: "index_dealer_offers_on_dealer_id"
+    t.index ["dealer_product_id"], name: "index_dealer_offers_on_dealer_product_id"
+    t.index ["pincodes"], name: "index_dealer_offers_on_pincodes", using: :gin
+    t.index ["product_id"], name: "index_dealer_offers_on_product_id"
+    t.index ["product_variant_id"], name: "index_dealer_offers_on_product_variant_id"
+    t.index ["reviewed_by_admin_id"], name: "index_dealer_offers_on_reviewed_by_admin_id"
+    t.index ["scheme_category"], name: "index_dealer_offers_on_scheme_category"
+  end
+
   create_table "dealer_payouts", force: :cascade do |t|
     t.bigint "dealer_id", null: false
     t.string "request_number", null: false
@@ -718,7 +763,9 @@ ActiveRecord::Schema[8.0].define(version: 2026_01_01_000048) do
     t.datetime "expires_at"
     t.datetime "accepted_at"
     t.string "invoice_number"
+    t.bigint "dealer_offer_id"
     t.index ["buyer_type", "buyer_id"], name: "index_orders_on_buyer_type_and_buyer_id"
+    t.index ["dealer_offer_id"], name: "index_orders_on_dealer_offer_id"
     t.index ["expires_at"], name: "index_orders_on_expires_at"
     t.index ["gateway_order_reference"], name: "index_orders_on_gateway_order_reference"
     t.index ["invoice_number"], name: "index_orders_on_invoice_number", unique: true

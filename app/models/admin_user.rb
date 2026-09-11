@@ -82,6 +82,15 @@ class AdminUser < ApplicationRecord
     posts_scope.where("pincodes && ARRAY[?]::varchar[]", pincodes)
   end
 
+  def accessible_dealer_offers(offers_scope = DealerOffer.all)
+    return offers_scope if super_admin?
+    return offers_scope if approver_admin?
+
+    return offers_scope.none if pincodes.blank?
+
+    offers_scope.where("pincodes && ARRAY[?]::varchar[]", pincodes)
+  end
+
   def approver_admin?
     return true if super_admin?
 

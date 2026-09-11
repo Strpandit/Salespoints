@@ -13,6 +13,8 @@ class MetaWhatsappCloudService
   TEMPLATE_DELIVERY_VERIFICATION_OTP = "delivery_code"
   TEMPLATE_ACCOUNT_LOGIN_OTP = "login_code"
   TEMPLATE_REPLACEMENT_REQUEST = "replacement_request_dealer"
+  TEMPLATE_OFFER_MART_ORDER_CUSTOMER = "offer_mart_order_confirmation"
+  TEMPLATE_OFFER_MART_ORDER_DEALER   = "offer_mart_new_order_dealer"
 
   def self.send_async(method_name, *args, **kwargs)
     WhatsappNotificationJob.perform_later(method_name, *args, **kwargs)
@@ -279,6 +281,58 @@ class MetaWhatsappCloudService
       template_name: TEMPLATE_REPLACEMENT_REQUEST,
       components: components
     )
+  end
+
+  def send_offer_mart_order_customer(to:, buyer_name:, order_number:, offer_name:,
+                                      quantity:, total:, delivery_pincode:, payment_method:)
+    payment_label = payment_method.to_s == "cod" ? "Cash on Delivery" : "Online Payment"
+    components = [
+      {
+        type: "body",
+        parameters: [
+          { type: "text", text: buyer_name.to_s },      
+          { type: "text", text: offer_name.to_s },      
+          { type: "text", text: quantity.to_s },        
+          { type: "text", text: total.to_s },           
+          { type: "text", text: delivery_pincode.to_s },
+          { type: "text", text: payment_label },        
+          { type: "text", text: order_number.to_s }     
+        ]
+      }
+    ]
+    send_template_message(
+      to: to,
+      template_name: TEMPLATE_OFFER_MART_ORDER_CUSTOMER,
+      components: components
+    )
+  rescue StandardError => e
+    Rails.logger.warn("[MetaWhatsapp] offer_mart_order_customer failed: #{e.message}")
+  end
+
+  def send_offer_mart_order_dealer(to:, order_number:, buyer_name:, offer_name:,
+                                    quantity:, total:, delivery_address:, payment_method:)
+    payment_label = payment_method.to_s == "cod" ? "Cash on Delivery" : "Online Payment"
+    components = [
+      {
+        type: "body",
+        parameters: [
+          { type: "text", text: order_number.to_s },     
+          { type: "text", text: buyer_name.to_s },       
+          { type: "text", text: offer_name.to_s },       
+          { type: "text", text: quantity.to_s },         
+          { type: "text", text: total.to_s },            
+          { type: "text", text: payment_label },         
+          { type: "text", text: delivery_address.to_s }
+        ]
+      }
+    ]
+    send_template_message(
+      to: to,
+      template_name: TEMPLATE_OFFER_MART_ORDER_DEALER,
+      components: components
+    )
+  rescue StandardError => e
+    Rails.logger.warn("[MetaWhatsapp] offer_mart_order_dealer failed: #{e.message}")
   end
 
   def send_template_message(to:, template_name:, components: [], language: "en")

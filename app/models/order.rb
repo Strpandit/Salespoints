@@ -1,6 +1,7 @@
 class Order < ApplicationRecord
   belongs_to :buyer, polymorphic: true
   belongs_to :seller_dealer, class_name: "Dealer", optional: true
+  belongs_to :dealer_offer, optional: true
   has_many :order_items, dependent: :destroy
   has_many :notifications, as: :notifiable, dependent: :nullify
   has_many :return_requests, as: :requestable, dependent: :destroy

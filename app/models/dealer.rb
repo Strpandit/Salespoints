@@ -6,6 +6,7 @@ class Dealer < ApplicationRecord
   has_one :dealer_location, dependent: :destroy, inverse_of: :dealer
   has_many :addresses, dependent: :destroy
   has_many :dealer_products, dependent: :nullify
+  has_many :dealer_offers, dependent: :destroy
   has_many :coupons, foreign_key: :created_by_dealer_id, dependent: :nullify
   has_many :buyer_b2b_orders, class_name: "B2bOrder", foreign_key: :buyer_dealer_id, dependent: :destroy
   has_many :seller_b2b_orders, class_name: "B2bOrder", foreign_key: :seller_dealer_id, dependent: :nullify

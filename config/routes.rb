@@ -219,6 +219,21 @@ Rails.application.routes.draw do
     # Dealer coupons
     resources :coupons
 
+    # Offer Mart — B2C dealer offers / schemes
+    resources :dealer_offers do
+      member do
+        get :check_pincode
+        patch :toggle_active
+        patch :approve
+        patch :reject
+        post :buy
+      end
+      collection do
+        get :pending
+        get :scheme_categories
+      end
+    end
+
     # Analytics and Reports
     get 'analytics/dashboard',        to: 'analytics#dashboard'
     get 'analytics/dealer_dashboard', to: 'analytics#dealer_dashboard'
