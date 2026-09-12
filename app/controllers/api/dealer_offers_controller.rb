@@ -304,7 +304,7 @@ module Api
       when "ending_soon"
         scope.order(Arel.sql("dealer_offers.offer_ends_at ASC NULLS LAST"))
       when "discount_desc"
-        scope.order(Arel.sql("((dealer_offers.mrp - dealer_offers.offer_price) / NULLIF(dealer_offers.mrp, 0)) DESC"))
+        scope.order(Arel.sql("((dealer_offers.seller_price - dealer_offers.offer_price) / NULLIF(dealer_offers.seller_price, 0)) DESC"))
       when "oldest"
         scope.order("dealer_offers.created_at ASC")
       else
@@ -325,9 +325,9 @@ module Api
     def offer_params
       params.require(:dealer_offer).permit(
         :offer_name, :scheme_category, :product_condition, :seller_code, :special_terms,
-        :brand_name, :device_model, :variant_name, :ram_storage, :colour,
+        :brand_name, :device_model, :variant_name, :colour,
         :imei_required, :warranty, :included_accessories, :return_replacement,
-        :mrp, :seller_price, :offer_price, :tax_rate,
+        :seller_price, :offer_price, :tax_rate,
         :available_quantity, :offer_starts_at, :offer_ends_at,
         media: [], pincodes: []
       )
@@ -392,13 +392,11 @@ module Api
         brand_name: offer.brand_name,
         device_model: offer.device_model,
         variant_name: offer.variant_name,
-        ram_storage: offer.ram_storage,
         colour: offer.colour,
         imei_required: offer.imei_required,
         warranty: offer.warranty,
         included_accessories: offer.included_accessories,
         return_replacement: offer.return_replacement,
-        mrp: offer.mrp.to_f,
         seller_price: offer.seller_price.to_f,
         offer_price: offer.offer_price.to_f,
         tax_rate: offer.effective_tax_rate.to_f,

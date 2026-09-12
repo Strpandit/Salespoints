@@ -1,4 +1,5 @@
 class Account < ApplicationRecord
+  include CrossActorUniqueness
   has_secure_password validations: false
   acts_as_paranoid
 
@@ -27,6 +28,8 @@ class Account < ApplicationRecord
             [a-zA-Z0-9-]+(\.[a-zA-Z0-9-]+)*\.[a-zA-Z]{2,}\z/x
     }
   validates :phone, uniqueness: true, allow_blank: true
+
+  validates_uniqueness_across_actors :email, :phone
 
   def full_name
     [first_name, last_name].compact.join(" ")

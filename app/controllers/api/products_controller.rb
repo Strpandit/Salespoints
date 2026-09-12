@@ -155,6 +155,7 @@ module Api
         :price, :selling_price, :dealer_price, :dealer_selling_price, :discount_percentage,
         :primary_media_blob_id, :primary_new_media_index,
         :purge_media_blob_ids, { purge_media_blob_ids: [] },
+        :features, :care_instructions,
         media: [],
         features: [], care_instructions: [],
         product_specifications_attributes: [:id, :key, :value, :_destroy],
@@ -170,6 +171,15 @@ module Api
 
     def normalized_product_params
       attrs = product_params.to_h.deep_dup
+
+      if attrs.key?("features")
+        attrs["features"] = normalize_text_list(attrs["features"])
+      end
+
+      if attrs.key?("care_instructions")
+        attrs["care_instructions"] = normalize_text_list(attrs["care_instructions"])
+      end
+
       variant_attrs = attrs["product_variants_attributes"]
       return attrs if variant_attrs.present?
       return attrs if @product&.product_variants&.exists?
@@ -179,6 +189,13 @@ module Api
 
       attrs["product_variants_attributes"] = [fallback_variant]
       attrs
+    end
+
+    def normalize_text_list(val)
+      return [] if val.blank?
+      Array(val).flat_map do |item|
+        item.is_a?(String) ? item.split(/\r?\n/) : item
+      end.map(&:to_s).map(&:strip).reject(&:blank?)
     end
 
     def build_fallback_variant_attributes(attrs)

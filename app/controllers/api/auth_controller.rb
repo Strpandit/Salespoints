@@ -52,6 +52,8 @@ module Api
         flow: signup ? 'signup' : 'login',
         channel: channel_name.downcase
       }, status: :ok
+    rescue ActiveRecord::RecordInvalid => e
+      render json: { error: e.record.errors.full_messages.to_sentence }, status: :unprocessable_entity
     rescue StandardError => e
       render json: { error: e.message }, status: :unprocessable_entity
     end
@@ -131,6 +133,8 @@ module Api
         token: token,
         account: serialize_data(account, AccountSerializer)
       }
+    rescue ActiveRecord::RecordInvalid => e
+      render json: { error: e.record.errors.full_messages.to_sentence }, status: :unprocessable_entity
     end
   end
 end

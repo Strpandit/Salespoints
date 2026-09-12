@@ -1,4 +1,5 @@
 class AdminUser < ApplicationRecord
+  include CrossActorUniqueness
   has_secure_password validations: false
   acts_as_paranoid
   attr_accessor :generated_password
@@ -40,6 +41,8 @@ class AdminUser < ApplicationRecord
   validates :phone, uniqueness: true, allow_blank: true
   validates :alternate_phone, allow_blank: true, uniqueness: true
   validates :approval_status, inclusion: { in: APPROVAL_STATUSES }
+
+  validates_uniqueness_across_actors :email, :phone
   # validates :address, :aadhar_number, :pan_number, :bank_name, :bank_account_number,
   #           :ifsc_code, :account_holder_name, :tenth_school_name, :tenth_board,
   #           :tenth_passing_year, :tenth_percentage, :twelfth_school_name, :twelfth_board,

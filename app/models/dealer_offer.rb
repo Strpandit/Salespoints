@@ -43,11 +43,11 @@ class DealerOffer < ApplicationRecord
   validates :scheme_category, inclusion: { in: SCHEME_CATEGORIES }
   validates :product_condition, inclusion: { in: PRODUCT_CONDITIONS }
   validates :approve_status, inclusion: { in: APPROVE_STATUSES }
-  validates :mrp, :seller_price, :offer_price,
+  validates :seller_price, :offer_price,
             numericality: { greater_than_or_equal_to: 0 }
   validates :available_quantity, :sold_quantity,
             numericality: { greater_than_or_equal_to: 0, only_integer: true }
-  validate :offer_price_not_above_mrp
+  validate :offer_price_not_above_seller_price
   validate :offer_window_valid
   validate :media_files_valid
   validate :validate_pincodes_format
@@ -87,9 +87,9 @@ class DealerOffer < ApplicationRecord
   end
 
   def discount_percentage
-    return 0.0 if mrp.to_d <= 0
+    return 0.0 if seller_price.to_d <= 0 || offer_price.to_d >= seller_price.to_d
 
-    (((mrp.to_d - offer_price.to_d) / mrp.to_d) * 100).round(2)
+    (((seller_price.to_d - offer_price.to_d) / seller_price.to_d) * 100).round(2)
   end
 
   def effective_tax_rate
@@ -103,8 +103,6 @@ class DealerOffer < ApplicationRecord
     product_variant&.effective_hsn_code || product&.hsn_code
   end
 
-  # Atomically reserve `qty` units. Also decrements the linked dealer_product stock so the
-  # regular B2C shop stays in sync. Raises on oversell.
   def deduct_quantity!(qty)
     qty = qty.to_i
     raise ArgumentError, "Quantity must be positive" unless qty.positive?
@@ -147,10 +145,10 @@ class DealerOffer < ApplicationRecord
 
   private
 
-  def offer_price_not_above_mrp
-    return if mrp.to_d <= 0 || offer_price.to_d <= mrp.to_d
+  def offer_price_not_above_seller_price
+    return if seller_price.to_d <= 0 || offer_price.to_d <= seller_price.to_d
 
-    errors.add(:offer_price, "cannot be greater than MRP")
+    errors.add(:offer_price, "cannot be greater than seller price")
   end
 
   def offer_window_valid

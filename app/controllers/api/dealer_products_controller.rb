@@ -717,12 +717,27 @@ module Api
     end
 
     def normalize_product_submission_attributes(attrs)
+      if attrs.key?("features")
+        attrs["features"] = normalize_text_list(attrs["features"])
+      end
+
+      if attrs.key?("care_instructions")
+        attrs["care_instructions"] = normalize_text_list(attrs["care_instructions"])
+      end
+
       variant_attrs = attrs["product_variants_attributes"]
       return attrs if variant_attrs.present?
 
       fallback_variant = build_fallback_variant_attributes(attrs)
       attrs["product_variants_attributes"] = [fallback_variant] if fallback_variant.present?
       attrs
+    end
+
+    def normalize_text_list(val)
+      return [] if val.blank?
+      Array(val).flat_map do |item|
+        item.is_a?(String) ? item.split(/\r?\n/) : item
+      end.map(&:to_s).map(&:strip).reject(&:blank?)
     end
 
     def build_fallback_variant_attributes(attrs)

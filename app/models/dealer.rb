@@ -1,4 +1,5 @@
 class Dealer < ApplicationRecord
+  include CrossActorUniqueness
   has_secure_password validations: false
   acts_as_paranoid
 
@@ -55,6 +56,7 @@ class Dealer < ApplicationRecord
             [a-zA-Z0-9-]+(\.[a-zA-Z0-9-]+)*\.[a-zA-Z]{2,}\z/x
     }
   validates :phone, uniqueness: { conditions: -> { where(deleted_at: nil) } }, allow_blank: true
+  validates_uniqueness_across_actors :email, :phone
   validates :dealer_code,
     uniqueness: { conditions: -> { where(deleted_at: nil) } },
     allow_nil: true,
