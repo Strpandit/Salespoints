@@ -49,14 +49,14 @@ class AdminAuthMailer < ApplicationMailer
 
   def admin_login_notification(admin)
     @admin = admin
-    @login_time = Time.now.strftime("%B %d, %Y at %I:%M %p")
+    @login_time = Time.current.strftime("%B %d, %Y at %I:%M %p")
     @ip_address = 'System'
     mail(to: admin.email, subject: "🔐 Admin Login Notification - SalesPoints")
   end
 
   def password_reset_confirmation(admin)
     @admin = admin
-    @reset_time = Time.now.strftime("%B %d, %Y at %I:%M %p")
+    @reset_time = Time.current.strftime("%B %d, %Y at %I:%M %p")
     mail(to: admin.email, subject: "Password Reset Confirmation - SalesPoints")
   end
 

@@ -19,7 +19,7 @@ class AccountMailer < ApplicationMailer
 
   def login_notification(account)
     @account = account
-    @login_time = Time.now.strftime("%B %d, %Y at %I:%M %p")
+    @login_time = Time.current.strftime("%B %d, %Y at %I:%M %p")
     mail(to: account.email, subject: "Login Notification - SalesPoints") if account.email.present?
   end
 
