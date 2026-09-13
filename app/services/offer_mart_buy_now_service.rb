@@ -58,7 +58,7 @@ class OfferMartBuyNowService
         refund_status: "none",
         refund_amount: 0,
         placed_at: Time.current,
-        status_note: "Offer Mart order — #{offer.offer_name}"
+        status_note: "Offer Mart order — #{offer.display_title}"
       )
 
       OrderItem.create!(
@@ -102,19 +102,20 @@ class OfferMartBuyNowService
   end
 
   def notify_offer_order_placed(order, offer)
+    offer_title = offer.display_title
     NotificationService.deliver(
       recipient: offer.dealer,
       actor: @buyer,
       notifiable: order,
       kind: "offer_mart_order_placed",
       title: "\u{1F3F7}\uFE0F New Offer Mart Order",
-      message: "#{@buyer.full_name} bought #{@quantity} unit(s) of #{offer.offer_name}. Total: \u20b9#{order.total_amount}",
+      message: "#{@buyer.full_name} bought #{@quantity} unit(s) of #{offer_title}. Total: \u20b9#{order.total_amount}",
       visible_in_app: true,
       delivery_channels: { push: true, whatsapp: true, sms: false, email: true, in_app: true },
       payload: {
         order_id: order.order_number,
         dealer_offer_id: offer.id,
-        offer_name: offer.offer_name,
+        offer_name: offer_title,
         quantity: @quantity,
         total_amount: order.total_amount.to_f
       }
@@ -126,7 +127,7 @@ class OfferMartBuyNowService
       notifiable: order,
       kind: "offer_mart_order_confirmation",
       title: "\u2705 Order Placed",
-      message: "Your order ##{order.order_number} for #{offer.offer_name} has been placed with the seller.",
+      message: "Your order ##{order.order_number} for #{offer_title} has been placed with the seller.",
       visible_in_app: true,
       delivery_channels: { push: true, whatsapp: true, sms: false, email: true, in_app: true },
       payload: {
@@ -147,6 +148,7 @@ class OfferMartBuyNowService
   end
 
   def safe_send_whatsapp_notifications(order, offer)
+    offer_title = offer.display_title
     delivery_addr = [ @shipping_address["address_line1"], @shipping_address["city"],
                       @shipping_address["state"], @pincode ].compact.join(", ")
 
@@ -158,7 +160,7 @@ class OfferMartBuyNowService
         to: customer_phone,
         buyer_name: @buyer.try(:full_name) || "Customer",
         order_number: order.order_number,
-        offer_name: offer.offer_name,
+        offer_name: offer_title,
         quantity: @quantity,
         total: order.total_amount.to_f,
         delivery_pincode: @pincode,
@@ -174,7 +176,7 @@ class OfferMartBuyNowService
         to: dealer_phone,
         order_number: order.order_number,
         buyer_name: @buyer.try(:full_name) || "Customer",
-        offer_name: offer.offer_name,
+        offer_name: offer_title,
         quantity: @quantity,
         total: order.total_amount.to_f,
         delivery_address: delivery_addr,

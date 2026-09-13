@@ -3,7 +3,7 @@ module Api
     skip_before_action :authenticate_request!, only: [ :index, :show, :check_pincode, :scheme_categories ]
     before_action :optional_authenticate, only: [ :index, :show, :check_pincode ]
     before_action :require_admin!, only: [ :pending, :approve, :reject ]
-    before_action :set_offer, only: [ :show, :update, :destroy, :toggle_active, :approve, :reject, :check_pincode, :buy ]
+    before_action :set_offer, only: [ :show, :update, :destroy, :toggle_active, :approve, :reject, :check_pincode, :buy, :reupload ]
 
     # GET /api/dealer_offers
     def index
@@ -50,6 +50,7 @@ module Api
       end
 
       offer = current_dealer.dealer_offers.new(offer_params)
+      offer.seller_code = current_dealer.dealer_code
       assign_catalog_fields(offer, dealer_product)
       offer.approve_status = "pending"
 
@@ -99,6 +100,25 @@ module Api
 
       @offer.destroy
       render json: { message: "Offer deleted" }, status: :ok
+    end
+
+    # POST /api/dealer_offers/:id/reupload
+    def reupload
+      return render json: { error: "Only dealers can re-upload offers" }, status: :forbidden unless current_dealer
+      return render json: { error: "You can re-upload only your own offer" }, status: :forbidden unless owner?(@offer)
+
+      unless @offer.can_reupload?
+        return render json: { error: "This offer cannot be re-uploaded. Only expired approved offers can be re-uploaded." }, status: :unprocessable_entity
+      end
+
+      if @offer.reupload!
+        render json: {
+          data: offer_payload(@offer),
+          message: "Offer re-uploaded successfully. Waiting for admin approval."
+        }, status: :ok
+      else
+        render json: { error: @offer.errors.full_messages }, status: :unprocessable_entity
+      end
     end
 
     # PATCH /api/dealer_offers/:id/toggle_active
@@ -233,12 +253,14 @@ module Api
     end
 
     def set_offer
-      @offer = DealerOffer.includes(:media_attachments, :dealer, :product, :product_variant).find_by(id: params[:id])
+      q = params[:id].to_s.strip
+      @offer = base_includes.find_by(slug: q)
+      @offer ||= base_includes.find_by(id: q) if q.match?(/\A\d+\z/)
       render json: { error: "Offer not found" }, status: :not_found unless @offer
     end
 
     def base_includes
-      DealerOffer.includes(:media_attachments, dealer: :dealer_profile)
+      DealerOffer.includes(:media_attachments, :product, :product_variant, dealer: :dealer_profile)
     end
 
     def owner?(offer)
@@ -277,17 +299,13 @@ module Api
         scope = scope.where(product_condition: params[:product_condition])
       end
 
-      if params[:brand].present?
-        scope = scope.where("dealer_offers.brand_name ILIKE ?", "%#{params[:brand].strip}%")
-      end
-
       scope = scope.where("dealer_offers.offer_price >= ?", params[:min_price].to_f) if params[:min_price].present?
       scope = scope.where("dealer_offers.offer_price <= ?", params[:max_price].to_f) if params[:max_price].present?
 
       if params[:search].present?
         q = "%#{params[:search].strip}%"
         scope = scope.where(
-          "dealer_offers.offer_name ILIKE :q OR dealer_offers.brand_name ILIKE :q OR dealer_offers.device_model ILIKE :q OR dealer_offers.seller_code ILIKE :q",
+          "dealer_offers.device_model ILIKE :q OR dealer_offers.seller_code ILIKE :q OR dealer_offers.variant_name ILIKE :q",
           q: q
         )
       end
@@ -303,8 +321,6 @@ module Api
         scope.order("dealer_offers.offer_price DESC")
       when "ending_soon"
         scope.order(Arel.sql("dealer_offers.offer_ends_at ASC NULLS LAST"))
-      when "discount_desc"
-        scope.order(Arel.sql("((dealer_offers.seller_price - dealer_offers.offer_price) / NULLIF(dealer_offers.seller_price, 0)) DESC"))
       when "oldest"
         scope.order("dealer_offers.created_at ASC")
       else
@@ -324,10 +340,10 @@ module Api
 
     def offer_params
       params.require(:dealer_offer).permit(
-        :offer_name, :scheme_category, :product_condition, :seller_code, :special_terms,
-        :brand_name, :device_model, :variant_name, :colour,
+        :scheme_category, :product_condition, :special_terms,
+        :device_model, :variant_name,
         :imei_required, :warranty, :included_accessories, :return_replacement,
-        :seller_price, :offer_price, :tax_rate,
+        :offer_price, :tax_rate,
         :available_quantity, :offer_starts_at, :offer_ends_at,
         media: [], pincodes: []
       )
@@ -340,7 +356,6 @@ module Api
       offer.dealer_product = dealer_product
       offer.product = product
       offer.product_variant = variant
-      offer.brand_name = offer.brand_name.presence || product&.brand&.name
       offer.device_model = offer.device_model.presence || product&.name
       offer.variant_name = offer.variant_name.presence || variant&.variant_sku
     end
@@ -382,30 +397,34 @@ module Api
 
     def offer_payload(offer)
       dealer = offer.dealer
+      product = offer.product
+      variant = offer.product_variant
       {
         id: offer.id,
-        offer_name: offer.offer_name,
+        slug: offer.slug,
+        title: offer.device_model.presence || "Dealer Offer",
+        display_title: offer.device_model.presence || "Dealer Offer",
+        device_model: offer.device_model,
+        model: offer.device_model,
+        product_name: offer.device_model,
+        variant_name: variant&.variant_sku || offer.variant_name,
         scheme_category: offer.scheme_category,
         product_condition: offer.product_condition,
         seller_code: offer.seller_code,
         special_terms: offer.special_terms,
-        brand_name: offer.brand_name,
-        device_model: offer.device_model,
-        variant_name: offer.variant_name,
-        colour: offer.colour,
         imei_required: offer.imei_required,
         warranty: offer.warranty,
         included_accessories: offer.included_accessories,
         return_replacement: offer.return_replacement,
-        seller_price: offer.seller_price.to_f,
         offer_price: offer.offer_price.to_f,
         tax_rate: offer.effective_tax_rate.to_f,
-        discount_percentage: offer.discount_percentage,
         available_quantity: offer.available_quantity,
         sold_quantity: offer.sold_quantity,
         remaining_quantity: offer.remaining_quantity,
         offer_starts_at: offer.offer_starts_at,
         offer_ends_at: offer.offer_ends_at,
+        reuploaded_at: offer.reuploaded_at,
+        visible_until: offer.visible_until,
         pincodes: offer.pincodes,
         approve_status: offer.approve_status,
         rejection_reason: offer.rejection_reason,
@@ -413,22 +432,20 @@ module Api
         is_active: offer.is_active,
         is_live: offer.live?,
         is_expired: offer.expired?,
+        can_reupload: offer.can_reupload?,
         is_owner: owner?(offer),
         hsn_code: offer.effective_hsn_code,
         dealer_id: offer.dealer_id,
         dealer_product_id: offer.dealer_product_id,
         product_id: offer.product_id,
         product_variant_id: offer.product_variant_id,
-        product_slug: offer.product&.slug,
         dealer: dealer && {
           id: dealer.id,
           dealer_code: dealer.dealer_code,
           full_name: dealer.full_name,
           business_name: dealer.dealer_profile&.business_name,
-          store_image: dealer.dealer_profile&.store_image&.attached? ?
-            dealer.dealer_profile.store_image.map { |file| attachment_payload(file) } : []
         },
-        dealer_name: dealer_display_name(dealer),
+        dealer_name: offer.seller_code.present? ? "Seller: #{offer.seller_code}" : "Seller",
         media: offer.media.map { |file| attachment_payload(file) },
         created_at: offer.created_at,
         updated_at: offer.updated_at
@@ -453,3 +470,4 @@ module Api
     end
   end
 end
+

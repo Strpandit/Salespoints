@@ -1,6 +1,6 @@
 class FormattedTextParser
-  BULLET_PREFIX = /\A[-*]\s+/.freeze
-  NUMBERED_PREFIX = /\A\d+[\.\)]\s+/.freeze
+  BULLET_PREFIX = /\A(?:[-*•▪●◦+]|\u2022|\u25E6|\u25AA|\u25CF)\s*/.freeze
+  NUMBERED_PREFIX = /\A(?:\d+[\.\)]|\([0-9]+\))\s*/.freeze
 
   def self.parse(text)
     new(text).parse
@@ -11,6 +11,8 @@ class FormattedTextParser
   end
 
   def parse
+    return [] if @text.blank?
+
     lines = @text.gsub("\r\n", "\n").split("\n")
     blocks = []
     paragraph_buffer = []
@@ -20,7 +22,7 @@ class FormattedTextParser
 
       blocks << {
         type: "paragraph",
-        text: paragraph_buffer.join(" ").strip
+        text: paragraph_buffer.join("\n").strip
       }
       paragraph_buffer.clear
     end
@@ -35,25 +37,27 @@ class FormattedTextParser
         next
       end
 
-      if line.match?(BULLET_PREFIX)
+      if line.strip.match?(BULLET_PREFIX)
         flush_paragraph.call
         items = []
         while index < lines.length && lines[index].to_s.strip.match?(BULLET_PREFIX)
-          items << lines[index].to_s.strip.sub(BULLET_PREFIX, "").strip
+          item_text = lines[index].to_s.strip.sub(BULLET_PREFIX, "").strip
+          items << item_text if item_text.present?
           index += 1
         end
-        blocks << { type: "bullet_list", items: items }
+        blocks << { type: "bullet_list", items: items } if items.any?
         next
       end
 
-      if line.match?(NUMBERED_PREFIX)
+      if line.strip.match?(NUMBERED_PREFIX)
         flush_paragraph.call
         items = []
         while index < lines.length && lines[index].to_s.strip.match?(NUMBERED_PREFIX)
-          items << lines[index].to_s.strip.sub(NUMBERED_PREFIX, "").strip
+          item_text = lines[index].to_s.strip.sub(NUMBERED_PREFIX, "").strip
+          items << item_text if item_text.present?
           index += 1
         end
-        blocks << { type: "numbered_list", items: items }
+        blocks << { type: "numbered_list", items: items } if items.any?
         next
       end
 

@@ -44,9 +44,9 @@ module Api
         )
       end
 
-      OtpService.send_otp(account)
+      channel_name = is_email ? "Email" : "WhatsApp"
+      OtpService.send_otp(account, channel: is_email ? "email" : "whatsapp")
 
-      channel_name = account.phone.present? ? "WhatsApp" : "Email"
       render json: {
         message: "6-digit OTP sent successfully via #{channel_name}",
         flow: signup ? 'signup' : 'login',

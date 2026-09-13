@@ -3,7 +3,7 @@ class OtpService
   COOLDOWN     = 30.seconds
   OTP_TTL      = 5.minutes
 
-  def self.send_otp(account)
+  def self.send_otp(account, channel: nil)
     if account.otp_sent_at && account.otp_sent_at > COOLDOWN.ago
       raise StandardError, "Please wait 30 seconds before requesting another OTP"
     end
@@ -24,15 +24,19 @@ class OtpService
       expires_in: OTP_TTL
     )
 
-    send_via_channel(account, otp)
+    send_via_channel(account, otp, channel: channel)
   end
 
-  def self.send_via_channel(account, otp)
-    if account.phone.present?
+  def self.send_via_channel(account, otp, channel: nil)
+    ch = channel.to_s.strip.downcase.presence
+
+    if ch == "email" || (ch.nil? && account.phone.blank? && account.email.present?)
+      raise StandardError, "No email registered for this account" if account.email.blank?
+      AccountMailer.send_otp(account, otp).deliver_now
+    elsif ch == "whatsapp" || (ch.nil? && account.phone.present?)
+      raise StandardError, "No phone number registered for this account" if account.phone.blank?
       destination = formatted_phone(account.phone, account.country_code)
       MetaWhatsappCloudService.new.send_login_otp(to: destination, otp: otp)
-    elsif account.email.present?
-      AccountMailer.send_otp(account, otp).deliver_now
     else
       raise StandardError, "No phone number or email registered for this account"
     end

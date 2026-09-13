@@ -226,6 +226,7 @@ Rails.application.routes.draw do
         patch :toggle_active
         patch :approve
         patch :reject
+        post :reupload
         post :buy
       end
       collection do
