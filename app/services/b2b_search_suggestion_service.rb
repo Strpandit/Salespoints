@@ -118,7 +118,6 @@ class B2bSearchSuggestionService
         "dealers.dealer_code ILIKE :p OR " \
         "products.name ILIKE :p OR " \
         "products.desc ILIKE :p OR " \
-        "products.sku ILIKE :p OR " \
         "product_variants.variant_sku ILIKE :p",
         p: pattern
       )
@@ -140,7 +139,6 @@ class B2bSearchSuggestionService
       "dealers.dealer_code ILIKE :p OR " \
       "products.name ILIKE :p OR " \
       "products.desc ILIKE :p OR " \
-      "products.sku ILIKE :p OR " \
       "product_variants.variant_sku ILIKE :p",
       p: pattern
     ).to_a
@@ -165,7 +163,6 @@ class B2bSearchSuggestionService
       scope = scope.where(
         "products.name ILIKE :p OR " \
         "products.desc ILIKE :p OR " \
-        "products.sku ILIKE :p OR " \
         "products.hsn_code ILIKE :p OR " \
         "products.features ILIKE :p OR " \
         "brands.name ILIKE :p OR " \
@@ -190,7 +187,6 @@ class B2bSearchSuggestionService
     base.where(
       "products.name ILIKE :p OR " \
       "products.desc ILIKE :p OR " \
-      "products.sku ILIKE :p OR " \
       "products.hsn_code ILIKE :p OR " \
       "brands.name ILIKE :p OR " \
       "categories.name ILIKE :p OR " \

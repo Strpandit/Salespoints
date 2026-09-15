@@ -59,7 +59,7 @@ module Api
         if params[:search].present?
           q = "%#{params[:search].strip}%"
           items = items.where(
-            "products.name ILIKE :q OR products.sku ILIKE :q OR product_variants.variant_sku ILIKE :q OR products.hsn_code ILIKE :q",
+            "products.name ILIKE :q OR product_variants.variant_sku ILIKE :q OR products.hsn_code ILIKE :q",
             q: q
           )
         end
@@ -143,7 +143,7 @@ module Api
         if params[:search].present?
           q = "%#{params[:search].strip}%"
           items = items.where(
-            "dealers.dealer_code ILIKE :q OR dealers.first_name ILIKE :q OR dealers.last_name ILIKE :q OR dealers.email ILIKE :q OR products.name ILIKE :q OR products.sku ILIKE :q OR product_variants.variant_sku ILIKE :q OR products.hsn_code ILIKE :q",
+            "dealers.dealer_code ILIKE :q OR dealers.first_name ILIKE :q OR dealers.last_name ILIKE :q OR dealers.email ILIKE :q OR products.name ILIKE :q OR product_variants.variant_sku ILIKE :q OR products.hsn_code ILIKE :q",
             q: q
           )
         end
@@ -553,7 +553,7 @@ module Api
         :sell_in_b2c,
         color_stocks: {},
         product_attributes: [
-          :name, :slug, :sku, :desc, :material, :brand_id, :category_id,
+          :name, :slug, :desc, :material, :brand_id, :category_id,
           :is_featured, :is_new, :tax_rate, :price, :selling_price, :dealer_price,
           :dealer_selling_price, :discount_percentage, :variant_sku, :hsn_code,
           media: [],
@@ -747,18 +747,18 @@ module Api
         variant_attrs[key] = value if value.present?
       end
 
-      variant_attrs["variant_sku"] ||= default_variant_sku(attrs["sku"])
+      variant_attrs["variant_sku"] ||= default_variant_sku(attrs["name"])
       return if variant_attrs.except("variant_sku").values.all?(&:blank?)
 
       variant_attrs["is_active"] = false
       variant_attrs
     end
 
-    def default_variant_sku(product_sku)
-      sku = product_sku.to_s.strip
-      return "SKU-#{SecureRandom.hex(4).upcase}" if sku.blank?
+    def default_variant_sku(product_name)
+      base = product_name.to_s.parameterize.upcase
+      return "VAR-#{SecureRandom.hex(4).upcase}" if base.blank?
 
-      "#{sku}-DEFAULT"
+      "#{base}-DEFAULT"
     end
 
     def update_dealer_product_params

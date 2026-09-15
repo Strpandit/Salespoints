@@ -172,7 +172,7 @@ class B2bOrderBroadcastService
     
     product_name = product&.name || "Product"
     variant_name = variant&.variant_sku || "Standard"
-    sku = product&.sku || variant&.variant_sku || "N/A"
+    sku = variant&.variant_sku || product&.name || "N/A"
     unit_price = first_item&.unit_price || 0
     quantity = matched_items.sum(&:quantity)
     total_amount = matched_items.sum(&:total_price)

@@ -335,7 +335,7 @@ class B2bOrderPaymentService
       to: formatted_phone_for(seller),
       product: product&.name || wholesaler_post&.title || "Product",
       variant: variant&.variant_sku || wholesaler_post&.title || "Standard",
-      sku: product&.sku || wholesaler_post&.modal_no || "N/A",
+      sku: variant&.variant_sku || wholesaler_post&.modal_no || product&.name || "N/A",
       price: item.unit_price.to_f.round(2).to_s,
       quantity: item.quantity.to_s,
       total_amount: item.total_price.to_f.round(2).to_s,

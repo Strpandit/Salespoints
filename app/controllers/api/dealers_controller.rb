@@ -684,7 +684,7 @@ module Api
       {
         id: dp.id,
         product_name: dp.product&.name,
-        sku: dp.product_variant&.variant_sku || dp.product&.sku,
+        sku: dp.product_variant&.variant_sku || dp.product&.name,
         stock_quantity: dp.stock_quantity,
         approve_status: dp.approve_status,
         is_active: dp.is_active,

@@ -24,7 +24,7 @@ module Api
       if params[:search].present?
         q = "%#{params[:search].strip}%"
         products = products.joins("LEFT JOIN product_variants ON product_variants.product_id = products.id")
-                           .where("products.name ILIKE :q OR products.sku ILIKE :q OR products.hsn_code ILIKE :q OR product_variants.variant_sku ILIKE :q", q: q)
+                           .where("products.name ILIKE :q OR products.hsn_code ILIKE :q OR product_variants.variant_sku ILIKE :q", q: q)
                            .distinct
       end
 
@@ -150,7 +150,7 @@ module Api
 
     def product_params
       params.require(:product).permit(
-        :name, :slug, :sku, :desc, :material, :brand_id, :category_id,
+        :name, :slug, :desc, :material, :brand_id, :category_id,
         :is_featured, :is_new, :is_active, :tax_rate, :hsn_code,
         :price, :selling_price, :dealer_price, :dealer_selling_price, :discount_percentage,
         :primary_media_blob_id, :primary_new_media_index,
@@ -205,18 +205,18 @@ module Api
         variant_attrs[key.to_s] = value if value.present?
       end
 
-      variant_attrs["variant_sku"] ||= generated_default_variant_sku(attrs["sku"])
+      variant_attrs["variant_sku"] ||= generated_default_variant_sku(attrs["name"])
       return if variant_attrs.except("variant_sku", "is_active").values.all?(&:blank?)
 
       variant_attrs["is_active"] = true if variant_attrs["is_active"].nil?
       variant_attrs
     end
 
-    def generated_default_variant_sku(product_sku)
-      sku = product_sku.to_s.strip
-      return if sku.blank?
+    def generated_default_variant_sku(product_name)
+      name_clean = product_name.to_s.parameterize.upcase
+      return if name_clean.blank?
 
-      "#{sku}-DEFAULT"
+      "#{name_clean}-DEFAULT"
     end
 
     def apply_active_product_sort(scope, sort)
