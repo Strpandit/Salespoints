@@ -16,8 +16,8 @@ class Product < ApplicationRecord
   accepts_nested_attributes_for :product_specifications, allow_destroy: true, reject_if: proc { |attrs| attrs['id'].blank? && attrs['key'].blank? && attrs['value'].blank? }
   accepts_nested_attributes_for :product_variants, allow_destroy: true, reject_if: :reject_blank_product_variant?
 
-  validates :name, :slug, presence: true
-  validates :slug, uniqueness: true
+  validates :name, presence: true, uniqueness: { case_sensitive: false }
+  validates :slug, presence: true, uniqueness: true
 
   validate :catalog_media_presence
   validate :media_files_valid
@@ -52,7 +52,6 @@ class Product < ApplicationRecord
 
     base_sku = name.to_s.parameterize.upcase.presence || "PROD-#{id || SecureRandom.hex(3).upcase}"
     sku_candidate = "#{base_sku}-DEFAULT"
-    sku_candidate = "#{base_sku}-DEFAULT" if ProductVariant.exists?(variant_sku: sku_candidate)
 
     product_variants.create!(
       variant_sku: sku_candidate,

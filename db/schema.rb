@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.0].define(version: 2026_09_15_000001) do
+ActiveRecord::Schema[8.0].define(version: 2026_09_16_000001) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -862,7 +862,7 @@ ActiveRecord::Schema[8.0].define(version: 2026_09_15_000001) do
     t.string "hsn_code"
     t.index ["primary_media_blob_id"], name: "index_product_variants_on_primary_media_blob_id"
     t.index ["product_id"], name: "index_product_variants_on_product_id"
-    t.index ["variant_sku"], name: "index_product_variants_on_variant_sku", unique: true, where: "(deleted_at IS NULL)"
+    t.index ["variant_sku"], name: "index_product_variants_on_variant_sku"
   end
 
   create_table "products", force: :cascade do |t|
@@ -891,6 +891,7 @@ ActiveRecord::Schema[8.0].define(version: 2026_09_15_000001) do
     t.index ["brand_id"], name: "index_products_on_brand_id"
     t.index ["category_id"], name: "index_products_on_category_id"
     t.index ["is_featured"], name: "index_products_on_is_featured"
+    t.index ["name"], name: "index_products_on_name", unique: true, where: "(deleted_at IS NULL)"
     t.index ["primary_media_blob_id"], name: "index_products_on_primary_media_blob_id"
     t.index ["slug"], name: "index_products_on_slug", unique: true, where: "(deleted_at IS NULL)"
   end

@@ -11,7 +11,7 @@ class ProductVariant < ApplicationRecord
 
   attr_accessor :purge_media_blob_ids
 
-  validates :variant_sku, presence: true, uniqueness: true
+  validates :variant_sku, presence: true
   validates :selling_price, :dealer_selling_price, presence: true, numericality: true
   validate :media_files_valid
 
