@@ -1,9 +1,16 @@
 class GenerateReportJob < ApplicationJob
   queue_as :pdf_reports
 
+  ALLOWED_USER_TYPES = %w[AdminUser Dealer].freeze
+
   retry_on StandardError, attempts: 3, wait: :exponentially_longer
 
   def perform(report_key:, format: "xlsx", filters: {}, user_type: "AdminUser", user_id: nil, recipient_email: nil)
+    unless ALLOWED_USER_TYPES.include?(user_type.to_s)
+      Rails.logger.warn("[GenerateReportJob] Rejected unexpected user_type: #{user_type}")
+      return
+    end
+
     user = user_type.constantize.find_by(id: user_id) if user_id.present?
     scope = user_type == "AdminUser" ? :admin : :vendor
 

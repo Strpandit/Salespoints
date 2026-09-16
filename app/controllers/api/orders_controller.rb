@@ -30,7 +30,7 @@ module Api
         message: "Order placed successfully. Waiting for seller to accept."
       }, status: :created
     rescue StandardError => e
-      render json: { error: e.message }, status: :unprocessable_entity
+      render_error(e)
     end
 
     def index
@@ -109,7 +109,7 @@ module Api
         message: "Order updated successfully"
       ), status: :ok
     rescue StandardError => e
-      render json: { error: e.message }, status: :unprocessable_entity
+      render_error(e)
     end
 
     def refund
@@ -131,7 +131,7 @@ module Api
         message: "Refund initiated successfully"
       }, status: :ok
     rescue StandardError => e
-      render json: { error: e.message }, status: :unprocessable_entity
+      render_error(e)
     end
 
     def release_settlement
@@ -151,7 +151,7 @@ module Api
         message: "Settlement released successfully"
       }, status: :ok
     rescue StandardError => e
-      render json: { error: e.message }, status: :unprocessable_entity
+      render_error(e)
     end
 
     private

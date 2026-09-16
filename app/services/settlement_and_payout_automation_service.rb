@@ -6,61 +6,6 @@ class SettlementAndPayoutAutomationService
     @dealer = dealer
   end
 
-  # Process all orders eligible for settlement release
-  def self.process_pending_settlements!
-    processed = 0
-    failed = 0
-
-    # Find all orders eligible for settlement
-    Order
-      .where(settlement_status: ["pending", "on_hold", "partially_refunded"])
-      .where(payment_status: ["paid", "partially_refunded", "refunded"])
-      .where("status" => ["processing", "shipped", "delivered"])
-      .where("settlement_due_at IS NOT NULL AND settlement_due_at <= ?", Time.current)
-      .find_each do |order|
-        begin
-          service = new(order: order)
-          service.process_order_settlement!
-          processed += 1
-        rescue StandardError => e
-          Rails.logger.error("Settlement processing error for order #{order.id}: #{e.message}")
-          failed += 1
-        end
-      end
-
-    {
-      processed: processed,
-      failed: failed,
-      message: "Processed #{processed} orders, #{failed} failed"
-    }
-  end
-
-  # Check and create automatic payouts for settled dealers
-  def self.process_dealer_payouts!
-    processed = 0
-    failed = 0
-
-    # Find dealers with sufficient settlement balance
-    Dealer
-      .where("settlement_balance > ?", MarketplaceOrderFinancials.minimum_payout_threshold)
-      .find_each do |dealer|
-        begin
-          service = new(dealer: dealer)
-          service.create_auto_payout_if_eligible!
-          processed += 1
-        rescue StandardError => e
-          Rails.logger.error("Payout creation error for dealer #{dealer.id}: #{e.message}")
-          failed += 1
-        end
-      end
-
-    {
-      processed: processed,
-      failed: failed,
-      message: "Created payouts for #{processed} dealers, #{failed} failed"
-    }
-  end
-
   # Process single order settlement
   def process_order_settlement!
     return unless @order.present?

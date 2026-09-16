@@ -1,11 +1,16 @@
 class OrderNotificationJob < ApplicationJob
   queue_as :notifications_mail
 
+  ALLOWED_ACTOR_TYPES = %w[Account Dealer AdminUser].freeze
+
   def perform(order_id, event, actor_type = nil, actor_id = nil)
     order = Order.includes(:buyer, :seller_dealer).find_by(id: order_id)
     return unless order
 
-    actor = actor_type.present? && actor_id.present? ? actor_type.constantize.find_by(id: actor_id) : nil
+    actor =
+      if actor_type.present? && actor_id.present? && ALLOWED_ACTOR_TYPES.include?(actor_type.to_s)
+        actor_type.to_s.constantize.find_by(id: actor_id)
+      end
 
     case event.to_s
     when "placed"

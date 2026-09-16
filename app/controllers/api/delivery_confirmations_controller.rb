@@ -28,7 +28,7 @@ module Api
         message: "Delivery proof submitted. OTP sent to buyer."
       ), status: :ok
     rescue StandardError => e
-      render json: { error: e.message }, status: :unprocessable_entity
+      render_error(e)
     end
 
     def resend_otps
@@ -38,7 +38,7 @@ module Api
         message: "OTPs sent successfully"
       ), status: :ok
     rescue StandardError => e
-      render json: { error: e.message }, status: :unprocessable_entity
+      render_error(e)
     end
 
     def verify_otps
@@ -53,7 +53,7 @@ module Api
         message: "Delivery verified successfully"
       ), status: :ok
     rescue StandardError => e
-      render json: { error: e.message }, status: :unprocessable_entity
+      render_error(e)
     end
 
     private

@@ -36,8 +36,7 @@ module Api
 
     def forgot_password
       dealer = Dealer.active.find_by(email: params[:email]&.downcase) || Dealer.active.find_by(phone: params[:phone]&.gsub(/\D/, ''))
-      return unauthorized("Dealer not found") unless dealer
-      return render json: { error: "Dealer email not available" }, status: :unprocessable_entity if dealer.email.blank?
+      return unauthorized("Unable to process request") unless dealer&.email.present?
 
       dealer.update!(otp_pin: rand(1000..9999), otp_sent_at: Time.current)
       Rails.cache.delete(reset_flow_cache_key(dealer.id))
@@ -47,7 +46,13 @@ module Api
 
     def otp_confirmation
       dealer = Dealer.active.find(params[:id])
-      return unauthorized("Invalid OTP") unless dealer.otp_valid?(params[:otp].to_s)
+      return unauthorized("Too many attempts. Please request a new OTP.") if otp_verify_locked?("dealer_reset", dealer.id)
+
+      unless dealer.otp_valid?(params[:otp].to_s)
+        record_failed_otp_attempt!("dealer_reset", dealer.id)
+        return unauthorized("Invalid OTP")
+      end
+      clear_otp_verify_attempts!("dealer_reset", dealer.id)
 
       reset_token = SecureRandom.hex(24)
       Rails.cache.write(reset_flow_cache_key(dealer.id), reset_token, expires_in: RESET_FLOW_TTL)

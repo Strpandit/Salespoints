@@ -43,19 +43,35 @@ class OrderSerializer < ApplicationSerializer
   end
 
   def commission_rate
-    object.commission_rate.to_f
+    admin_viewer? ? object.commission_rate.to_f : nil
   end
 
   def commission_amount
-    object.commission_amount.to_f
+    admin_viewer? ? object.commission_amount.to_f : nil
   end
 
   def marketplace_fee_amount
-    object.marketplace_fee_amount.to_f
+    admin_viewer? ? object.marketplace_fee_amount.to_f : nil
   end
 
   def seller_settlement_amount
-    object.seller_settlement_amount.to_f
+    admin_viewer? ? object.seller_settlement_amount.to_f : nil
+  end
+
+  def settlement_status
+    admin_viewer? ? object.settlement_status : nil
+  end
+
+  def settlement_due_at
+    admin_viewer? ? object.settlement_due_at : nil
+  end
+
+  def settled_at
+    admin_viewer? ? object.settled_at : nil
+  end
+
+  def hold_released_at
+    admin_viewer? ? object.hold_released_at : nil
   end
 
   def refund_amount
@@ -91,10 +107,22 @@ class OrderSerializer < ApplicationSerializer
   end
 
   def customer_email
-    object.buyer&.email
+    return object.buyer&.email if admin_viewer? || options[:viewer] == :customer
+
+    nil
   end
 
   def status_display
     object.status.titleize
+  end
+
+  private
+
+  # Commission/settlement figures and the buyer's email are internal marketplace
+  # data — only admins (and the buyer themselves, for their own email) should see
+  # them. Anything not explicitly recognized (dealer, public, unauthenticated)
+  # gets the restricted view by default.
+  def admin_viewer?
+    options[:viewer] == :admin
   end
 end

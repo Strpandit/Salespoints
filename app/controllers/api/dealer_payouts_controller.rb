@@ -175,7 +175,7 @@ module Api
         message: "Payout request submitted successfully"
       }, status: :created
     rescue StandardError => e
-      render json: { error: e.message }, status: :unprocessable_entity
+      render_error(e)
     end
 
     def update
@@ -183,6 +183,10 @@ module Api
       return render json: { error: "Payout request not found" }, status: :not_found unless payout
 
       if current_admin.present?
+        unless current_admin.can_access?(:payouts, :write)
+          return render json: { error: "Access denied: You do not have permission to update payout requests." }, status: :forbidden
+        end
+
         handle_admin_transition!(payout)
       elsif current_dealer.present?
         handle_dealer_transition!(payout)
@@ -195,7 +199,7 @@ module Api
         message: "Payout request updated successfully"
       }, status: :ok
     rescue StandardError => e
-      render json: { error: e.message }, status: :unprocessable_entity
+      render_error(e)
     end
 
     private

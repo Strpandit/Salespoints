@@ -16,7 +16,7 @@ module Api
       MetaWhatsappWebhookService.new(headers: request.headers, raw_body: request.raw_post).call
       head :ok
     rescue StandardError => e
-      render json: { error: e.message }, status: :unprocessable_entity
+      render_error(e)
     end
   end
 end

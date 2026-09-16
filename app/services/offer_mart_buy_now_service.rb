@@ -32,7 +32,11 @@ class OfferMartBuyNowService
     payment_data = {}
     cod = @payment_method == "cod"
 
-    ActiveRecord::Base.transaction do
+    @buyer.with_lock do
+      if !cod && recent_duplicate_pending_order?(offer.id)
+        raise StandardError, "A payment for this offer is already being processed. Please wait a few seconds and check your orders before retrying."
+      end
+
       order = Order.create!(
         buyer: @buyer,
         seller_dealer_id: offer.dealer_id,
@@ -86,6 +90,12 @@ class OfferMartBuyNowService
   end
 
   private
+
+  def recent_duplicate_pending_order?(dealer_offer_id)
+    Order.where(buyer: @buyer, dealer_offer_id: dealer_offer_id, payment_method: "online", payment_status: "pending")
+         .where("placed_at > ?", 60.seconds.ago)
+         .exists?
+  end
 
   def calculate_pricing(offer)
     unit_price = offer.offer_price.to_d
@@ -236,7 +246,13 @@ class OfferMartBuyNowService
       provider: "cashfree"
     }
   rescue StandardError => e
-    order.update_columns(payment_status: "failed", status_note: "Payment initialization failed")
+    order.dealer_offer&.restore_quantity!(@quantity)
+    order.update_columns(
+      payment_status: "failed",
+      status: "cancelled",
+      cancelled_at: Time.current,
+      status_note: "Payment initialization failed — reserved stock released"
+    )
     raise e
   end
 end

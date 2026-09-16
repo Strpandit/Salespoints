@@ -87,6 +87,11 @@ class CashfreeWebhookProcessingService
       return
     end
 
+    if refund_event?(payload)
+      process_refund!(payload)
+      return
+    end
+
     order_ref = payload.dig("data", "order", "order_id") || payload["order_id"]
     payment_status = payload.dig("data", "payment", "payment_status").to_s.upcase
 
@@ -104,6 +109,9 @@ class CashfreeWebhookProcessingService
   def process_payment_attempt!(attempt, payload, payment_status)
     if payment_status == "SUCCESS"
       return if attempt.processed?
+
+      received_amount = payload.dig("data", "order", "order_amount") || payload.dig("data", "payment", "payment_amount")
+      notify_admins_of_amount_mismatch(attempt, attempt.amount, received_amount) if amount_mismatch?(attempt.amount, received_amount)
 
       attempt.update!(
         status: "paid",
@@ -126,18 +134,112 @@ class CashfreeWebhookProcessingService
 
   def process_order!(order, payload, payment_status)
     if payment_status == "SUCCESS"
-      order.mark_payment_paid!(
-        reference: payload.dig("data", "payment", "cf_payment_id"),
-        gateway_payload: payload
-      )
-      if order.seller_dealer.present?
-        EmailDispatcherService.retail_order_accepted(order)
-      else
-        B2cOrderBroadcastService.new(order: order, actor: order.buyer).broadcast!
+      order.with_lock do
+        next if order.payment_status == "paid"
+
+        received_amount = payload.dig("data", "order", "order_amount") || payload.dig("data", "payment", "payment_amount")
+        notify_admins_of_amount_mismatch(order, order.total_amount, received_amount) if amount_mismatch?(order.total_amount, received_amount)
+
+        order.mark_payment_paid!(
+          reference: payload.dig("data", "payment", "cf_payment_id"),
+          gateway_payload: payload
+        )
+        if order.seller_dealer.present?
+          EmailDispatcherService.retail_order_accepted(order)
+        else
+          B2cOrderBroadcastService.new(order: order, actor: order.buyer).broadcast!
+        end
       end
     elsif payment_status.present?
-      order.mark_payment_failed!(gateway_payload: payload)
+      order.with_lock do
+        next if order.payment_status == "paid"
+
+        order.mark_payment_failed!(gateway_payload: payload)
+      end
     end
+  end
+
+  def refund_event?(payload)
+    payload["type"].to_s.upcase.include?("REFUND") || payload.dig("data", "refund").present?
+  end
+
+  AMOUNT_MISMATCH_TOLERANCE = 1.to_d
+
+  def amount_mismatch?(expected, received)
+    return false if received.blank?
+
+    (BigDecimal(expected.to_s) - BigDecimal(received.to_s)).abs > AMOUNT_MISMATCH_TOLERANCE
+  rescue ArgumentError, TypeError
+    false
+  end
+
+  def notify_admins_of_amount_mismatch(record, expected, received)
+    label = record.try(:order_number) || record.try(:attempt_number) || "##{record.id}"
+    AdminUser.where(is_super_admin: true).find_each do |admin|
+      NotificationService.deliver(
+        recipient: admin,
+        actor: nil,
+        notifiable: record,
+        kind: "admin_payment_amount_mismatch",
+        title: "⚠️ Payment Amount Mismatch",
+        message: "Cashfree confirmed ₹#{received} for #{record.class.name} #{label}, but ₹#{expected} was expected. Needs manual review.",
+        visible_in_app: true,
+        delivery_channels: { push: true, whatsapp: false, sms: false, email: true, in_app: true },
+        payload: { expected_amount: expected.to_f, received_amount: received.to_f }
+      )
+    end
+  rescue StandardError => e
+    Rails.logger.error("[CashfreeWebhookProcessingService] failed to notify admins of amount mismatch: #{e.message}")
+  end
+
+  def process_refund!(payload)
+    refund_data = payload.dig("data", "refund") || {}
+    order_ref = payload.dig("data", "order", "order_id") || payload["order_id"]
+    refund_status = refund_data["refund_status"].to_s.upcase
+    refund_reference = refund_data["cf_refund_id"] || refund_data["refund_id"]
+
+    raise StandardError, "Cashfree order reference missing in refund webhook" if order_ref.blank?
+
+    record = Order.find_by(gateway_order_reference: order_ref) || Order.find_by(order_number: order_ref) ||
+             B2bOrder.find_by(gateway_order_reference: order_ref) || B2bOrder.find_by(payment_session_id: order_ref)
+    return @event.update!(status: "ignored", processed_at: Time.current, response_code: 200) if record.blank?
+
+    record.with_lock do
+      record.update!(
+        payment_gateway_payload: record.payment_gateway_payload.merge("latest_refund_webhook" => payload)
+      )
+
+      next unless refund_status.in?(%w[FAILED CANCELLED])
+
+      attrs = {
+        status_note: [
+          record.status_note,
+          "Cashfree reported refund #{refund_status.downcase} (ref #{refund_reference}) — customer may not have received their money. Needs manual reconciliation."
+        ].compact.join(" | ")
+      }
+      attrs[:refund_status] = "failed" if record.respond_to?(:refund_status=)
+      record.update!(attrs)
+      notify_admins_of_refund_failure(record, refund_reference, refund_status)
+    end
+  end
+
+  def notify_admins_of_refund_failure(record, refund_reference, refund_status)
+    label = record.try(:order_number) || record.try(:reference_number) || "##{record.id}"
+    AdminUser.where(is_super_admin: true).find_each do |admin|
+      NotificationService.deliver(
+        recipient: admin,
+        actor: nil,
+        notifiable: record,
+        kind: "admin_refund_failed",
+        title: "⚠️ Refund Failed",
+        message: "Cashfree reported the refund for #{record.class.name} #{label} (ref #{refund_reference}) as #{refund_status.downcase}. The customer has not received their money — please reconcile manually.",
+        visible_in_app: true,
+        delivery_channels: { push: true, whatsapp: false, sms: false, email: true, in_app: true },
+        payload: { record_id: label, refund_reference: refund_reference, refund_status: refund_status }
+      )
+    end
+  rescue StandardError => e
+    Rails.logger.error("[CashfreeWebhookProcessingService] failed to notify admins of refund failure: #{e.message}")
   end
 
   def process_payout!(payload)

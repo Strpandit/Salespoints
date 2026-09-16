@@ -402,7 +402,7 @@ module Api
         message: "Bank account verified successfully"
       }, status: :ok
     rescue StandardError => e
-      render json: { error: e.message }, status: :unprocessable_entity
+      render_error(e)
     end
 
     def block
@@ -515,12 +515,18 @@ module Api
     def nearby
       lat = params[:lat].to_f
       lng = params[:lng].to_f
-      radius = params[:radius].to_f || 10
-      limit = params[:limit].to_i || 20
+      radius = params[:radius].presence&.to_f || 10
+      limit = params[:limit].presence&.to_i || 20
 
       if lat.zero? || lng.zero?
         return render json: { error: "Latitude and longitude are required" }, status: :unprocessable_entity
       end
+
+      # Bound both — an uncapped radius/limit lets a request force a huge geo scan.
+      radius = 10 if radius <= 0
+      radius = [radius, 100].min
+      limit = 20 if limit <= 0
+      limit = [limit, 100].min
 
       results = Dealer.nearby(lat, lng, radius_km: radius, limit: limit)
 
@@ -533,7 +539,7 @@ module Api
         }
       }, status: :ok
     rescue => e
-      render json: { error: e.message }, status: :unprocessable_entity
+      render_error(e)
     end
     
     private

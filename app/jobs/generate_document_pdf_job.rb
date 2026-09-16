@@ -1,10 +1,18 @@
 class GenerateDocumentPdfJob < ApplicationJob
   queue_as :pdf_reports
 
+  ALLOWED_RECORD_TYPES = %w[Order B2bOrder Dealer AdminUser].freeze
+
   retry_on StandardError, attempts: 3, wait: :exponentially_longer
 
   def perform(document_type, record_type, record_id, options = {})
-    record = record_type.to_s.constantize.find_by(id: record_id)
+    record_type = record_type.to_s
+    unless ALLOWED_RECORD_TYPES.include?(record_type)
+      Rails.logger.warn("[GenerateDocumentPdfJob] Rejected unexpected record_type: #{record_type}")
+      return
+    end
+
+    record = record_type.constantize.find_by(id: record_id)
     return unless record
 
     case document_type.to_s.to_sym

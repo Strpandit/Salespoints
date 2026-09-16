@@ -113,7 +113,7 @@ module Api
         message: "Request sent to nearby dealers"
       ), status: :created
     rescue StandardError => e
-      render json: { error: e.message }, status: :unprocessable_entity
+      render_error(e)
     end
 
     def accept
@@ -134,7 +134,7 @@ module Api
 
       render json: { message: "Order accepted successfully." }, status: :ok
     rescue StandardError => e
-      render json: { error: e.message }, status: :unprocessable_entity
+      render_error(e)
     end
 
     def reject
@@ -155,7 +155,7 @@ module Api
 
       render json: { message: "Order rejected successfully" }, status: :ok
     rescue StandardError => e
-      render json: { error: e.message }, status: :unprocessable_entity
+      render_error(e)
     end
 
     def download_invoice
@@ -243,7 +243,7 @@ module Api
         }, status: :ok
       end
     rescue StandardError => e
-      render json: { error: e.message }, status: :unprocessable_entity
+      render_error(e)
       raise
     end
 
@@ -281,7 +281,7 @@ module Api
         message: "B2B order updated successfully"
       ), status: :ok
     rescue StandardError => e
-      render json: { error: e.message }, status: :unprocessable_entity
+      render_error(e)
     end
 
     private

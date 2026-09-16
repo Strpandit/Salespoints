@@ -55,7 +55,7 @@ module Api
     rescue ActiveRecord::RecordInvalid => e
       render json: { error: e.record.errors.full_messages.to_sentence }, status: :unprocessable_entity
     rescue StandardError => e
-      render json: { error: e.message }, status: :unprocessable_entity
+      render_error(e)
     end
 
     def verify_otp
@@ -95,7 +95,7 @@ module Api
         account: serialize_data(account, AccountSerializer)
       }, status: :ok
     rescue StandardError => e
-      render json: { error: e.message }, status: :unprocessable_entity
+      render_error(e)
     end
 
     def google_login

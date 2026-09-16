@@ -30,7 +30,7 @@ class Order < ApplicationRecord
   PAYMENT_METHODS = %w[cod online].freeze
   PAYMENT_STATUSES = %w[pending paid failed partially_refunded refunded].freeze
   SETTLEMENT_STATUSES = %w[on_hold pending partially_refunded settled refunded].freeze
-  REFUND_STATUSES = %w[none partial completed].freeze
+  REFUND_STATUSES = %w[none partial completed failed].freeze
 
   validates :order_number, presence: true, uniqueness: true
   validates :buyer_type, :buyer_id, presence: true

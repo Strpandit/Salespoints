@@ -8,7 +8,7 @@ class MetaWhatsappWebhookService
   end
 
   def call
-    verify_signature! if app_secret.present?
+    verify_signature!
 
     payload = JSON.parse(@raw_body)
     Array(payload["entry"]).each do |entry|
@@ -624,6 +624,11 @@ class MetaWhatsappWebhookService
   end
 
   def verify_signature!
+    # Fail closed: if the secret is ever missing (dropped env var, secret
+    # rotated without restarting every instance, etc.) we must reject the
+    # webhook rather than silently skip verification and trust any POST body.
+    raise StandardError, "Meta WhatsApp app secret is not configured" if app_secret.blank?
+
     signature = @headers["X-Hub-Signature-256"].to_s
     raise StandardError, "Missing Meta WhatsApp signature" if signature.blank?
 

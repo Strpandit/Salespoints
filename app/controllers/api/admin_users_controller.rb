@@ -1,5 +1,7 @@
 module Api
   class AdminUsersController < ApplicationController
+    RESET_FLOW_TTL = 10.minutes
+
     skip_before_action :authenticate_request!, only: [:login, :login_otp, :forgot_password, :otp_confirmation, :reset_user_password, :verify_otp, :resend_signup_otp, :check_signup_token]
     before_action :require_admin, except: [:login, :login_otp, :forgot_password, :otp_confirmation, :reset_user_password, :verify_otp, :resend_signup_otp, :check_signup_token]
     before_action :require_super_admin, only: [:create, :destroy, :deactivate, :reactivate]
@@ -239,7 +241,7 @@ module Api
         pincodes: admin.pincodes
       }, status: :ok
     rescue => e
-      render json: { error: e.message }, status: :unprocessable_entity
+      render_error(e)
     end
 
     def admin_pincodes
@@ -327,13 +329,13 @@ module Api
 
     def forgot_password
       admin = AdminUser.find_by(email: params[:email]&.downcase)
-      return unauthorized("User not found") unless admin
-      return render json: { error: "Admin email not available" }, status: :unprocessable_entity if admin.email.blank?
+      return unauthorized("Unable to process request") unless admin&.email.present?
 
       admin.update!(
         otp_pin: rand(1000..9999),
         otp_sent_at: Time.current
       )
+      Rails.cache.delete(reset_flow_cache_key(admin.id))
 
       AdminAuthMailer.forgot_password_otp(admin).deliver_later if admin.email.present?
 
@@ -342,7 +344,13 @@ module Api
 
     def login_otp
       return unauthorized("Invalid admin login") unless @admin_user&.super_admin?
-      return unauthorized("Invalid OTP") unless @admin_user.otp_valid?(params[:otp].to_s)
+      return unauthorized("Too many attempts. Please request a new OTP.") if otp_verify_locked?("admin_login", @admin_user.id)
+
+      unless @admin_user.otp_valid?(params[:otp].to_s)
+        record_failed_otp_attempt!("admin_login", @admin_user.id)
+        return unauthorized("Invalid OTP")
+      end
+      clear_otp_verify_attempts!("admin_login", @admin_user.id)
 
       token = JsonWebToken.encode(user_id: @admin_user.id, user_type: "AdminUser")
       @admin_user.clear_otp!
@@ -365,9 +373,18 @@ module Api
 
     def otp_confirmation
       admin = AdminUser.find(params[:id])
-      return unauthorized("Invalid OTP") unless admin.otp_pin.to_s == params[:otp].to_s
+      return unauthorized("Too many attempts. Please request a new OTP.") if otp_verify_locked?("admin_reset", admin.id)
 
-      render json: { message: "OTP verified successfully" }
+      unless admin.otp_valid?(params[:otp].to_s)
+        record_failed_otp_attempt!("admin_reset", admin.id)
+        return unauthorized("Invalid OTP")
+      end
+      clear_otp_verify_attempts!("admin_reset", admin.id)
+
+      reset_token = SecureRandom.hex(24)
+      Rails.cache.write(reset_flow_cache_key(admin.id), reset_token, expires_in: RESET_FLOW_TTL)
+
+      render json: { message: "OTP verified successfully", reset_token: reset_token }
     end
 
     def verify_otp
@@ -395,9 +412,13 @@ module Api
 
     def reset_user_password
       admin = AdminUser.find(params[:id])
+      reset_token = params[:reset_token].to_s
+      cached_token = Rails.cache.read(reset_flow_cache_key(admin.id)).to_s
+      return unauthorized("Reset session expired. Verify OTP again.") if reset_token.blank? || cached_token.blank? || cached_token != reset_token
 
       if admin.update(password: params[:password], password_confirmation: params[:password_confirmation])
         admin.update(otp_pin: nil, otp_sent_at: nil)
+        Rails.cache.delete(reset_flow_cache_key(admin.id))
         AdminAuthMailer.password_reset_confirmation(admin).deliver_later if admin.email.present?
         render json: { message: "Password reset successfully" }
       else
@@ -508,6 +529,10 @@ module Api
     #   end
     # rescue StandardError
     # end
+
+    def reset_flow_cache_key(admin_id)
+      "admin_password_reset_verified:#{admin_id}"
+    end
 
     def find_signup_admin
       token_or_id = params[:token].presence || params[:id].presence

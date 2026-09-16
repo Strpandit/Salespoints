@@ -34,7 +34,11 @@ class DirectBuyNowService
     order = nil
     payment_data = {}
 
-    ActiveRecord::Base.transaction do
+    @buyer.with_lock do
+      if @payment_method == "online" && recent_duplicate_pending_order?(variant.id)
+        raise StandardError, "A payment for this item is already being processed. Please wait a few seconds and check your orders before retrying."
+      end
+
       order = Order.create!(
         buyer: @buyer,
         seller_dealer_id: nil,
@@ -99,6 +103,14 @@ class DirectBuyNowService
   end
 
   private
+
+  def recent_duplicate_pending_order?(product_variant_id)
+    Order.joins(:order_items)
+         .where(buyer: @buyer, payment_method: "online", payment_status: "pending")
+         .where(order_items: { product_variant_id: product_variant_id })
+         .where("orders.placed_at > ?", 60.seconds.ago)
+         .exists?
+  end
 
   def find_eligible_dealers(variant)
     coords = B2bPincodeAvailabilityService.geocode_pincode(@pincode)

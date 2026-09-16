@@ -1,4 +1,6 @@
 class DealerPayout < ApplicationRecord
+  include AttachableMediaValidations
+
   STATUSES = %w[pending approved processing paid rejected failed cancelled].freeze
   ACTIVE_STATUSES = %w[pending approved processing paid].freeze
 
@@ -11,6 +13,7 @@ class DealerPayout < ApplicationRecord
   validates :request_number, presence: true, uniqueness: true
   validates :status, inclusion: { in: STATUSES }
   validates :amount, numericality: { greater_than: 0 }
+  validate :gst_invoice_validity
 
   before_validation :assign_request_number, on: :create
 
@@ -83,6 +86,10 @@ class DealerPayout < ApplicationRecord
   end
 
   private
+
+  def gst_invoice_validity
+    validate_document_attachment(:gst_invoice)
+  end
 
   def assign_request_number
     return if request_number.present?

@@ -1,4 +1,6 @@
 class DeliveryConfirmation < ApplicationRecord
+  include AttachableMediaValidations
+
   belongs_to :deliverable, polymorphic: true
   belongs_to :seller_dealer, class_name: "Dealer", optional: true
   belongs_to :buyer, polymorphic: true
@@ -17,6 +19,7 @@ class DeliveryConfirmation < ApplicationRecord
   validates :status, inclusion: { in: STATUSES }
   validates :context, inclusion: { in: CONTEXTS }
   validates :deliverable_type, inclusion: { in: %w[Order B2bOrder] }
+  validate :attachments_validity
 
   before_validation :ensure_token, on: :create
   before_validation :ensure_context, on: :create
@@ -61,6 +64,12 @@ class DeliveryConfirmation < ApplicationRecord
   end
 
   private
+
+  def attachments_validity
+    validate_attachment_set(:product_with_customer_image)
+    validate_attachment_set(:product_packaging_image)
+    validate_attachment_set(:product_open_box_images)
+  end
 
   def ensure_token
     self.token ||= SecureRandom.hex(24)

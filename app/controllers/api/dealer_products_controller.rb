@@ -266,7 +266,7 @@ module Api
         message: "B2B dealer products fetched successfully"
       ), status: :ok
     rescue StandardError => e
-      render json: { error: e.message }, status: :unprocessable_entity
+      render_error(e)
     end
 
     def create
@@ -283,6 +283,10 @@ module Api
     end
 
     def show
+      unless authorized_dealer_product_action? || visible_to_non_owner?
+        return render json: { error: "Dealer product not found" }, status: :not_found
+      end
+
       render json: serialize_resource(@dealer_product, DealerProductSerializer, base_url: request.base_url)
     end
 
@@ -333,6 +337,7 @@ module Api
 
     def approve
       return unauthorized("Admin only") unless current_admin
+      return unauthorized("Access denied") unless current_admin.can_access?(:dealer_products, :write)
 
       if @dealer_product.stock_quantity.nil? || @dealer_product.stock_quantity <= 0
         return render json: { error: "Stock quantity must be greater than 0 before approval" }, status: :unprocessable_entity
@@ -354,6 +359,7 @@ module Api
 
     def reject
       return unauthorized("Admin only") unless current_admin
+      return unauthorized("Access denied") unless current_admin.can_access?(:dealer_products, :write)
 
       if @dealer_product.approve_status == "rejected"
         return render json: { error: "Dealer product is already rejected" }, status: :unprocessable_entity
@@ -371,6 +377,7 @@ module Api
 
     def revert_to_pending
       return unauthorized("Admin only") unless current_admin
+      return unauthorized("Access denied") unless current_admin.can_access?(:dealer_products, :write)
 
       if @dealer_product.approve_status != "rejected"
         return render json: { error: "Only rejected products can be reverted to pending" }, status: :unprocessable_entity
@@ -784,10 +791,18 @@ module Api
     end
 
     def authorized_dealer_product_action?
-      return true if current_user_type == "AdminUser"
+      return current_admin.can_access?(:dealer_products, :write) if current_user_type == "AdminUser"
       return false unless current_user_type == "Dealer"
 
       current_dealer.id == @dealer_product.dealer_id
+    end
+
+    # A dealer browsing another dealer's B2B-listed product (e.g. to place a B2B
+    # order against it) needs read access to that product even though they don't
+    # own it — but only once it's actually a live, approved, sellable listing, not
+    # a pending/rejected/inactive one that has no reason to be visible to them.
+    def visible_to_non_owner?
+      @dealer_product.is_active? && @dealer_product.approved? && (@dealer_product.sell_in_b2b? || @dealer_product.sell_in_b2c?)
     end
 
     def unauthorized(msg)

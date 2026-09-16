@@ -109,7 +109,7 @@ module Api
         message: "Replacement request created successfully"
       }, status: :created
     rescue StandardError => e
-      render json: { error: e.message }, status: :unprocessable_entity
+      render_error(e)
     end
 
     def update
@@ -169,7 +169,7 @@ module Api
       }, status: :ok
 
     rescue StandardError => e
-      render json: { error: e.message }, status: :unprocessable_entity
+      render_error(e)
     end
 
     private

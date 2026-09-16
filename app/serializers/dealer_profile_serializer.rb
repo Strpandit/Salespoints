@@ -12,25 +12,25 @@ class DealerProfileSerializer < ApplicationSerializer
   end
 
   def aadhar_card
-    object.aadhar_card.map { |file| file_payload(file) }
+    object.aadhar_card.map { |file| file_payload(file, expires_in: KYC_LINK_TTL) }
   end
 
   def pan_card
     return nil unless object.pan_card.attached?
 
-    file_payload(object.pan_card)
+    file_payload(object.pan_card, expires_in: KYC_LINK_TTL)
   end
 
   def gst_certificate
     return nil unless object.gst_certificate.attached?
 
-    file_payload(object.gst_certificate)
+    file_payload(object.gst_certificate, expires_in: KYC_LINK_TTL)
   end
 
   def cancel_cheque
     return nil unless object.cancel_cheque.attached?
 
-    file_payload(object.cancel_cheque)
+    file_payload(object.cancel_cheque, expires_in: KYC_LINK_TTL)
   end
 
   def brand_invoices
@@ -39,11 +39,15 @@ class DealerProfileSerializer < ApplicationSerializer
 
   private
 
-  def file_payload(file)
+  KYC_LINK_TTL = 2.hours
+
+  def file_payload(file, expires_in: nil)
     host = options[:base_url] || Rails.application.config.active_storage.default_url_options&.dig(:host)
+    url_options = { host: host }
+    url_options[:expires_in] = expires_in if expires_in
     {
       id: file.id,
-      url: Rails.application.routes.url_helpers.rails_blob_url(file, host: host),
+      url: Rails.application.routes.url_helpers.rails_blob_url(file, **url_options),
       filename: file.filename.to_s,
       content_type: file.content_type.to_s
     }

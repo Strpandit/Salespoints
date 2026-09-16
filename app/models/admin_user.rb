@@ -188,11 +188,7 @@ class AdminUser < ApplicationRecord
   def generate_password
     return if password.present?
 
-    year = Time.current.year.to_s
-    email_part = email.split('@').first.to_s[0, 3]
-    email_part = email_part.ljust(3, "x")
-    random_digits = SecureRandom.random_number(10_000).to_s.rjust(4, "0")
-    generated_password = "#{email_part}#{random_digits}"
+    generated_password = SecureRandom.urlsafe_base64(12)
     self.generated_password = generated_password
     self.password = generated_password
     self.password_confirmation = generated_password

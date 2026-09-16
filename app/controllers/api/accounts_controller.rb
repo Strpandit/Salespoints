@@ -187,7 +187,9 @@ module Api
     end
 
     def check_permission
-      unless current_admin.can_access?(:accounts)
+      required_permission = %w[block unblock].include?(action_name) ? :write : :read
+
+      unless current_admin.can_access?(:accounts, required_permission)
         render json: { error: "You do not have permission to manage customers"}, status: :forbidden
       end
     end

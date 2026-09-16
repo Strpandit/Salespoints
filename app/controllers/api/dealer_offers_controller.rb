@@ -220,7 +220,7 @@ module Api
         message: "Order placed successfully."
       }, status: :created
     rescue StandardError => e
-      render json: { error: e.message }, status: :unprocessable_entity
+      render_error(e)
     end
 
     # GET /api/dealer_offers/scheme_categories

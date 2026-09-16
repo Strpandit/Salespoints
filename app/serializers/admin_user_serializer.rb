@@ -39,19 +39,19 @@ class AdminUserSerializer < ApplicationSerializer
   end
 
   def aadhar_card
-    object.aadhar_card.map { |file| file_payload(file) }
+    object.aadhar_card.map { |file| file_payload(file, expires_in: KYC_LINK_TTL) }
   end
 
   def pan_card
     return nil unless object.pan_card.attached?
 
-    file_payload(object.pan_card)
+    file_payload(object.pan_card, expires_in: KYC_LINK_TTL)
   end
 
   def passbook
     return nil unless object.passbook.attached?
 
-    file_payload(object.passbook)
+    file_payload(object.passbook, expires_in: KYC_LINK_TTL)
   end
 
   def approved_by_name
@@ -64,11 +64,15 @@ class AdminUserSerializer < ApplicationSerializer
 
   private
 
-  def file_payload(file)
+  KYC_LINK_TTL = 2.hours
+
+  def file_payload(file, expires_in: nil)
     host = options[:base_url] || Rails.application.config.active_storage.default_url_options&.dig(:host)
+    url_options = { host: host }
+    url_options[:expires_in] = expires_in if expires_in
     {
       id: file.id,
-      url: Rails.application.routes.url_helpers.rails_blob_url(file, host: host),
+      url: Rails.application.routes.url_helpers.rails_blob_url(file, **url_options),
       filename: file.filename.to_s,
       content_type: file.content_type.to_s
     }

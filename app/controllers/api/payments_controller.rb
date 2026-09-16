@@ -28,23 +28,29 @@ module Api
 
       case status
       when "PAID"
-        order.mark_payment_paid!(reference: payload["cf_payment_id"] || payload["payment_id"], gateway_payload: payload)
-        if order.status == "pending"
-          if order.seller_dealer.present?
-            OrderLifecycleService.new(
-              order: order,
-              actor: current_user,
-              status_note: "Online payment confirmed successfully."
-            ).transition!(next_status: "processing")
-            EmailDispatcherService.retail_order_accepted(order)
-          else
-            B2cOrderBroadcastService.new(order: order, actor: order.buyer).broadcast!
+        order.with_lock do
+          next if order.payment_status == "paid"
+
+          notify_admins_of_amount_mismatch(order, order.total_amount, payload["order_amount"]) if amount_mismatch?(order.total_amount, payload["order_amount"])
+
+          order.mark_payment_paid!(reference: payload["cf_payment_id"] || payload["payment_id"], gateway_payload: payload)
+          if order.status == "pending"
+            if order.seller_dealer.present?
+              OrderLifecycleService.new(
+                order: order,
+                actor: current_user,
+                status_note: "Online payment confirmed successfully."
+              ).transition!(next_status: "processing")
+              EmailDispatcherService.retail_order_accepted(order)
+            else
+              B2cOrderBroadcastService.new(order: order, actor: order.buyer).broadcast!
+            end
           end
         end
       when "ACTIVE"
         order.update!(payment_gateway_payload: order.payment_gateway_payload.merge(payload))
       else
-        order.mark_payment_failed!(gateway_payload: payload)
+        order.mark_payment_failed!(gateway_payload: payload) unless order.payment_status == "paid"
       end
 
       render json: {
@@ -52,7 +58,7 @@ module Api
         payment_gateway_status: status
       }, status: :ok
     rescue StandardError => e
-      render json: { error: e.message }, status: :unprocessable_entity
+      render_error(e)
     end
 
     def cancel_cashfree
@@ -70,20 +76,19 @@ module Api
         message: "Payment cancelled"
       }, status: :ok
     rescue StandardError => e
-      render json: { error: e.message }, status: :unprocessable_entity
+      render_error(e)
     end
 
     def cashfree_webhook
-      begin
-        service = CashfreeWebhookProcessingService.new(
-          headers: request.headers, 
-          raw_body: request.raw_post
-        )
-        service.call
-      rescue StandardError => e
-        Rails.logger.error e.backtrace.join("\n")
-      end
+      service = CashfreeWebhookProcessingService.new(
+        headers: request.headers,
+        raw_body: request.raw_post
+      )
+      service.call
       head :ok
+    rescue StandardError => e
+      Rails.logger.error(e.backtrace.join("\n"))
+      render plain: "error", status: unauthorized_webhook_error?(e) ? :unauthorized : :unprocessable_entity
     end
 
     def payment_details
@@ -158,6 +163,8 @@ module Api
 
       case status
       when "PAID"
+        notify_admins_of_amount_mismatch(attempt, attempt.amount, payload["order_amount"]) if amount_mismatch?(attempt.amount, payload["order_amount"])
+
         mark_attempt_paid!(attempt, payload)
         finalization = PaymentAttemptFinalizationService.new(payment_attempt: attempt).call
         if finalization.b2b_order.present?
@@ -266,6 +273,35 @@ module Api
 
     def unauthorized_webhook_error?(error)
       error.message.match?(/signature|timestamp/i)
+    end
+
+    AMOUNT_MISMATCH_TOLERANCE = 1.to_d
+
+    def amount_mismatch?(expected, received)
+      return false if received.blank?
+
+      (BigDecimal(expected.to_s) - BigDecimal(received.to_s)).abs > AMOUNT_MISMATCH_TOLERANCE
+    rescue ArgumentError, TypeError
+      false
+    end
+
+    def notify_admins_of_amount_mismatch(record, expected, received)
+      label = record.try(:order_number) || record.try(:attempt_number) || "##{record.id}"
+      AdminUser.where(is_super_admin: true).find_each do |admin|
+        NotificationService.deliver(
+          recipient: admin,
+          actor: nil,
+          notifiable: record,
+          kind: "admin_payment_amount_mismatch",
+          title: "⚠️ Payment Amount Mismatch",
+          message: "Cashfree confirmed ₹#{received} for #{record.class.name} #{label}, but ₹#{expected} was expected. Needs manual review.",
+          visible_in_app: true,
+          delivery_channels: { push: true, whatsapp: false, sms: false, email: true, in_app: true },
+          payload: { expected_amount: expected.to_f, received_amount: received.to_f }
+        )
+      end
+    rescue StandardError => e
+      Rails.logger.error("[PaymentsController] failed to notify admins of amount mismatch: #{e.message}")
     end
   end
 end

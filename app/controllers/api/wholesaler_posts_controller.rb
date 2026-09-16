@@ -189,6 +189,10 @@ module Api
     end
 
     def approve
+      unless current_admin.can_access?(:wholesaler_posts, :write)
+        return render json: { error: "Access denied" }, status: :forbidden
+      end
+
       post = WholesalerPost.find_by(id: params[:id])
       return render json: { error: "Not found" }, status: :not_found unless post
 
@@ -203,6 +207,10 @@ module Api
     end
 
     def reject
+      unless current_admin.can_access?(:wholesaler_posts, :write)
+        return render json: { error: "Access denied" }, status: :forbidden
+      end
+
       post = WholesalerPost.find_by(id: params[:id])
       return render json: { error: "Not found" }, status: :not_found unless post
 
@@ -347,7 +355,7 @@ module Api
         }, status: :created
         
       rescue StandardError => e
-        render json: { error: e.message }, status: :unprocessable_entity
+        render_error(e)
       end
     end
 
