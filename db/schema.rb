@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.0].define(version: 2026_09_16_000001) do
+ActiveRecord::Schema[8.0].define(version: 2026_09_18_000001) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -835,13 +835,15 @@ ActiveRecord::Schema[8.0].define(version: 2026_09_16_000001) do
   end
 
   create_table "product_variant_colors", force: :cascade do |t|
-    t.bigint "product_variant_id", null: false
+    t.bigint "product_variant_id"
     t.string "color_name"
     t.string "color_hex"
     t.string "sku_code"
     t.bigint "primary_media_blob_id"
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
+    t.bigint "product_id"
+    t.index ["product_id"], name: "index_product_variant_colors_on_product_id"
     t.index ["product_variant_id"], name: "index_product_variant_colors_on_product_variant_id"
   end
 
@@ -1266,6 +1268,7 @@ ActiveRecord::Schema[8.0].define(version: 2026_09_16_000001) do
   add_foreign_key "orders", "dealers", column: "seller_dealer_id"
   add_foreign_key "product_specifications", "products"
   add_foreign_key "product_variant_colors", "product_variants"
+  add_foreign_key "product_variant_colors", "products"
   add_foreign_key "product_variants", "products"
   add_foreign_key "products", "brands"
   add_foreign_key "products", "categories"

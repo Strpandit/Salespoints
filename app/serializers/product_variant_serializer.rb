@@ -44,7 +44,9 @@ class ProductVariantSerializer < ApplicationSerializer
   end
 
   def colors
-    object.product_variant_colors.map do |c|
+    return [] unless object.product
+
+    object.product.product_variant_colors.map do |c|
       {
         id: c.id,
         color_name: c.color_name,

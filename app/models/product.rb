@@ -9,12 +9,14 @@ class Product < ApplicationRecord
   attr_accessor :purge_media_blob_ids
 
   has_many :product_variants, dependent: :destroy, inverse_of: :product
+  has_many :product_variant_colors, dependent: :destroy, inverse_of: :product
   has_many :product_specifications, dependent: :destroy, inverse_of: :product
   has_many :dealer_products, dependent: :destroy
   has_many :reviews, dependent: :destroy
 
   accepts_nested_attributes_for :product_specifications, allow_destroy: true, reject_if: proc { |attrs| attrs['id'].blank? && attrs['key'].blank? && attrs['value'].blank? }
   accepts_nested_attributes_for :product_variants, allow_destroy: true, reject_if: :reject_blank_product_variant?
+  accepts_nested_attributes_for :product_variant_colors, allow_destroy: true, reject_if: :reject_blank_product_variant_color?
 
   validates :name, presence: true, uniqueness: { case_sensitive: false }
   validates :slug, presence: true, uniqueness: true
@@ -90,22 +92,26 @@ class Product < ApplicationRecord
   private
 
   def catalog_media_presence
-    return if media.attached? || product_variants.any? { |variant| !variant.marked_for_destruction? && variant.media.attached? }
+    return if media.attached? || product_variant_colors.any? { |color| !color.marked_for_destruction? && color.media.attached? }
 
-    errors.add(:base, "Add at least one image or video on the product or one of its variants")
+    errors.add(:base, "Add at least one image or video on the product or one of its colors")
   end
 
   def media_files_valid
     validate_attachment_set(:media)
   end
 
+  def reject_blank_product_variant_color?(attributes)
+    attrs = attributes.to_h.stringify_keys.except("_destroy", "id")
+    media = Array(attrs.delete("media")).reject(&:blank?)
+    attrs["color_name"].blank? && attrs["color_hex"].blank? && media.empty?
+  end
+
   def reject_blank_product_variant?(attributes)
     attrs = attributes.to_h.stringify_keys.except("_destroy", "id", "is_active")
-    media = Array(attrs.delete("media")).reject(&:blank?)
     variant_attrs = attrs.delete("variant_attributes")
 
     attrs.values.all?(&:blank?) &&
-      media.empty? &&
       blank_variant_attributes?(variant_attrs)
   end
 

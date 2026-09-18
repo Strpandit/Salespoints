@@ -3,7 +3,7 @@ class ProductSerializer < ApplicationSerializer
   attributes :name, :slug, :desc, :material, :features, :care_instructions,
              :is_featured, :is_new, :is_active, :tax_rate, :deleted_at, :specifications, 
              :media, :price, :selling_price, :dealer_price, :dealer_selling_price, :discount_percentage,
-             :price_source, :tax_inclusive, :hsn_code, :desc_blocks, :product_specifications
+             :price_source, :tax_inclusive, :hsn_code, :desc_blocks, :product_specifications, :colors
 
   belongs_to :category
   belongs_to :brand
@@ -32,6 +32,18 @@ class ProductSerializer < ApplicationSerializer
 
   def tax_inclusive
     true
+  end
+
+  def colors
+    object.product_variant_colors.map do |c|
+      blobs = c.ordered_media_attachments.map(&:blob)
+      {
+        id: c.id,
+        color_name: c.color_name,
+        color_hex: c.color_hex,
+        media: build_media_payloads(blobs, primary_blob_id: c.primary_media_blob_id)
+      }
+    end
   end
 
   def desc_blocks

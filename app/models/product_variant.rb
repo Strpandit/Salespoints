@@ -1,19 +1,11 @@
 class ProductVariant < ApplicationRecord
   belongs_to :product
-  include AttachableMediaValidations
-  include PrimaryMediaAttachable
 
-  has_many_attached :media
   has_many :dealer_products
   has_many :order_items
-  has_many :product_variant_colors, dependent: :destroy
-  accepts_nested_attributes_for :product_variant_colors, allow_destroy: true
-
-  attr_accessor :purge_media_blob_ids
 
   validates :variant_sku, presence: true
   validates :selling_price, :dealer_selling_price, presence: true, numericality: true
-  validate :media_files_valid
 
   scope :active, -> { where(is_active: true, deleted_at: nil) }
 
@@ -35,15 +27,23 @@ class ProductVariant < ApplicationRecord
   end
 
   def display_media_attachments
-    if media.attached?
-      ordered_media_attachments.map(&:blob)
-    else
-      product.ordered_media_attachments.map(&:blob)
-    end
+    product ? product.ordered_media_attachments.map(&:blob) : []
   end
 
   def display_primary_blob_id
-    media.attached? ? primary_media_blob_id : product.primary_media_blob_id
+    product&.primary_media_blob_id
+  end
+
+  def ordered_media_attachments
+    product ? product.ordered_media_attachments : []
+  end
+
+  def primary_media_blob_id
+    product&.primary_media_blob_id
+  end
+
+  def media
+    product ? product.media : nil
   end
 
   def calculate_discount_percentage(user_type = :account)
@@ -68,10 +68,5 @@ class ProductVariant < ApplicationRecord
   def sellable?
     is_active && !deleted?
   end
-
-  private
-
-  def media_files_valid
-    validate_attachment_set(:media)
-  end
 end
+

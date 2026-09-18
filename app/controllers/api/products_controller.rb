@@ -115,10 +115,12 @@ module Api
   def update
     purge_blob_ids = extract_purge_blob_ids
     variant_purge_map = extract_variant_purge_blob_ids
+    color_purge_map = extract_color_purge_blob_ids
 
     if @product.update(normalized_product_params)
       purge_media_blobs!(@product, purge_blob_ids)
       apply_variant_media_purges!(variant_purge_map)
+      apply_color_media_purges!(color_purge_map)
       notify_admins_entity_updated(@product)
         render json: serialize_resource(@product, ProductSerializer, base_url: request.base_url).merge(
           message: "Product updated successfully"
@@ -159,12 +161,15 @@ module Api
         media: [],
         features: [], care_instructions: [],
         product_specifications_attributes: [:id, :key, :value, :_destroy],
+        product_variant_colors_attributes: [
+          :id, :color_name, :color_hex, :primary_media_blob_id, :primary_new_media_index, :_destroy,
+          :purge_media_blob_ids, { purge_media_blob_ids: [] },
+          { media: [] }
+        ],
         product_variants_attributes: [
           :id, :variant_sku, :price, :selling_price, :dealer_price, :hsn_code,
           :dealer_selling_price, :discount_percentage, :is_active, :_destroy,
-          :primary_media_blob_id, :primary_new_media_index,
-          :purge_media_blob_ids, { purge_media_blob_ids: [] },
-          { media: [], variant_attributes: [:key, :value], product_variant_colors_attributes: [:id, :color_name, :color_hex, :_destroy] }
+          { variant_attributes: [:key, :value] }
         ]
       )
     end
@@ -328,6 +333,39 @@ module Api
       variant_purge_map.each do |variant_id, blob_ids|
         variant = @product.product_variants.find_by(id: variant_id)
         purge_media_blobs!(variant, blob_ids) if variant
+      end
+    end
+
+    def extract_color_purge_blob_ids
+      colors = params.dig(:product, :product_variant_colors_attributes)
+      return {} if colors.blank?
+
+      colors = colors.to_unsafe_h if colors.is_a?(ActionController::Parameters)
+
+      map = {}
+      colors.each do |_index, attrs|
+        attrs = attrs.to_unsafe_h if attrs.is_a?(ActionController::Parameters)
+        color_id = attrs["id"] || attrs[:id]
+        next if color_id.blank?
+        blob_ids = []
+
+        if attrs["purge_media_blob_ids"].present?
+          blob_ids.concat(Array(attrs["purge_media_blob_ids"]))
+        end
+        if attrs[:purge_media_blob_ids].present?
+          blob_ids.concat(Array(attrs[:purge_media_blob_ids]))
+        end
+
+        blob_ids = blob_ids.map(&:to_i).reject(&:zero?).uniq
+        map[color_id.to_i] = blob_ids if blob_ids.any?
+      end
+      map
+    end
+
+    def apply_color_media_purges!(color_purge_map)
+      color_purge_map.each do |color_id, blob_ids|
+        color = @product.product_variant_colors.find_by(id: color_id)
+        purge_media_blobs!(color, blob_ids) if color
       end
     end
 
