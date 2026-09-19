@@ -5,9 +5,16 @@ class OrderItemSerializer < ApplicationSerializer
             :color, :image_url
 
   def image_url
+    pvc = object.product_variant_color
+    color_blob = pvc&.ordered_media_attachments&.first&.blob
+    if color_blob
+      payload = file_payload(color_blob)
+      return payload[:url] if payload
+    end
+
     pv = object.product_variant
     dp = object.dealer_product
-    blob = pv&.media&.first&.blob || pv&.product&.media&.first&.blob || dp&.media&.first&.blob || dp&.product_variant&.media&.first&.blob || dp&.product&.media&.first&.blob
+    blob = pv&.product&.media&.first&.blob || dp&.product&.media&.first&.blob
     return nil unless blob
     payload = file_payload(blob)
     payload ? payload[:url] : nil
@@ -16,31 +23,40 @@ class OrderItemSerializer < ApplicationSerializer
   end
 
   def pricing
-    @pricing ||= Pricing::PriceCalculator.new(
-      variant: object.product_variant,
-      quantity: object.quantity,
-      user_type: object.order.buyer_type == "Dealer" ? :dealer : :account
-    ).call
+    @pricing ||= begin
+      if object.product_variant.present? && object.product_variant.product.present?
+        Pricing::PriceCalculator.new(
+          variant: object.product_variant,
+          quantity: object.quantity,
+          user_type: object.order&.buyer_type == "Dealer" ? :dealer : :account
+        ).call
+      else
+        {}
+      end
+    rescue StandardError => e
+      Rails.logger.warn("OrderItemSerializer pricing calculation error for item #{object.id}: #{e.message}")
+      {}
+    end
   end
 
   def unit_price
-    pricing[:unit_price]
+    pricing[:unit_price] || object.read_attribute(:unit_price).to_f
   end
 
   def taxable_amount
-    pricing[:taxable_amount]
+    pricing[:taxable_amount] || object.read_attribute(:taxable_amount).to_f
   end
 
   def gst_percentage
-    pricing[:gst_percentage]
+    pricing[:gst_percentage] || object.read_attribute(:gst_percentage).to_f
   end
 
   def gst_amount
-    pricing[:gst_amount]
+    pricing[:gst_amount] || object.read_attribute(:gst_amount).to_f
   end
 
   def total_price
-    pricing[:total]
+    pricing[:total] || object.read_attribute(:total_price).to_f
   end
 
   def product_name
@@ -64,11 +80,11 @@ class OrderItemSerializer < ApplicationSerializer
   end
 
   def product_media
-    object.product_variant&.product.media.map { |file| file_payload(file) }
+    object.product_variant&.product&.media&.map { |file| file_payload(file) } || []
   end
 
   def variant_media
-    object.product_variant.media.map { |file| file_payload(file) }
+    object.product_variant&.media&.map { |file| file_payload(file) } || []
   end
 
   def color

@@ -83,13 +83,13 @@ module Api
 
       case params[:sort_by]
       when "oldest"
-        orders = orders.sort_by { |o| o[:created_at] }
+        orders = orders.sort_by { |o| o[:created_at].to_s }
       when "amount_desc"
-        orders = orders.sort_by { |o| o[:total_amount] }.reverse
+        orders = orders.sort_by { |o| o[:total_amount].to_f }.reverse
       when "amount_asc"
-        orders = orders.sort_by { |o| o[:total_amount] }
+        orders = orders.sort_by { |o| o[:total_amount].to_f }
       else
-        orders = orders.sort_by { |o| o[:created_at] }.reverse
+        orders = orders.sort_by { |o| o[:created_at].to_s }.reverse
       end
       
       page = (params[:page] || 1).to_i

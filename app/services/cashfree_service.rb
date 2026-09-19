@@ -10,10 +10,10 @@ class CashfreeService
     @client_id = ENV["CASHFREE_CLIENT_ID"].to_s
     @client_secret = ENV["CASHFREE_CLIENT_SECRET"].to_s
     @webhook_secret = ENV["CASHFREE_WEBHOOK_SECRET"].presence || @client_secret
-    @pg_base_url = ENV["CASHFREE_BASE_URL"].presence || "https://sandbox.cashfree.com/pg"
-    @payout_base_url = ENV["CASHFREE_PAYOUT_BASE_URL"].presence || "https://sandbox.cashfree.com/payout"
-    @backend_url = ENV["BACKEND_BASE_URL"].presence || "http://localhost:3000"
-    @frontend_url = ENV["FRONTEND_URL"].presence || "http://localhost:5173"
+    @pg_base_url = ENV["CASHFREE_BASE_URL"].presence || "https://api.cashfree.com/pg"
+    @payout_base_url = ENV["CASHFREE_PAYOUT_BASE_URL"].presence || "https://payout.cashfree.com/payout"
+    @backend_url = ENV["BACKEND_BASE_URL"].presence || "https://api.salespoints.in"
+    @frontend_url = ENV["FRONTEND_URL"].presence || "https://salespoints.in"
   end
 
   def configured?
@@ -345,7 +345,7 @@ class CashfreeService
   end
 
   def verification_base_url
-    ENV["CASHFREE_VERIFICATION_BASE_URL"].presence || "https://sandbox.cashfree.com/verification"
+    ENV["CASHFREE_VERIFICATION_BASE_URL"].presence || "https://api.cashfree.com/verification"
   end
 
   def beneficiary_id_for(dealer)
