@@ -3,47 +3,91 @@ module Api
     skip_before_action :authenticate_request!, only: [:cashfree_webhook, :payment_details, :verify_cashfree]
 
     def verify_cashfree
-      if params[:payment_attempt_id].present?
-        return verify_payment_attempt!
+      # 1. Resolve PaymentAttempt or Order from params
+      raw_attempt_id = params[:payment_attempt_id].presence
+      raw_order_id = params[:order_id].presence || params[:order_number].presence || params[:cf_order_id].presence
+
+      attempt = nil
+      if raw_attempt_id.present?
+        attempt = PaymentAttempt.find_by(id: raw_attempt_id) ||
+                  PaymentAttempt.find_by(attempt_number: raw_attempt_id) ||
+                  PaymentAttempt.find_by(gateway_order_reference: raw_attempt_id)
       end
 
-      order = scoped_orders.find_by(id: params[:order_id]) || Order.find_by(id: params[:order_id])
-      return render json: { error: "Order not found" }, status: :not_found unless order
+      # If no attempt found by raw_attempt_id, check if raw_order_id matches an attempt
+      if attempt.blank? && raw_order_id.present?
+        attempt = PaymentAttempt.find_by(attempt_number: raw_order_id) ||
+                  PaymentAttempt.find_by(gateway_order_reference: raw_order_id)
+      end
 
-      if order.gateway_order_reference.blank?
-        attempt = PaymentAttempt.where(buyer: order.buyer, status: "pending")
-                                .where("result_payload -> 'order_ids' @> ?", [order.id].to_json)
-                                .last
-        attempt ||= PaymentAttempt.where(buyer: order.buyer).where("result_payload -> 'order_ids' @> ?", [order.id].to_json).last
+      return verify_payment_attempt_record!(attempt) if attempt.present?
 
-        if attempt&.gateway_order_reference.present?
-          order.update!(gateway_order_reference: attempt.gateway_order_reference)
+      # 2. Look up Order directly
+      order = nil
+      if raw_order_id.present?
+        order = scoped_orders.find_by(id: raw_order_id) ||
+                Order.find_by(id: raw_order_id) ||
+                Order.find_by(order_number: raw_order_id) ||
+                Order.find_by(gateway_order_reference: raw_order_id)
+      end
+
+      # If not found by raw_order_id, check if raw_attempt_id matches an order
+      if order.blank? && raw_attempt_id.present?
+        order = scoped_orders.find_by(id: raw_attempt_id) ||
+                Order.find_by(id: raw_attempt_id) ||
+                Order.find_by(order_number: raw_attempt_id) ||
+                Order.find_by(gateway_order_reference: raw_attempt_id)
+      end
+
+      return render json: { error: "Order or payment attempt not found" }, status: :not_found unless order
+
+      # Fast path: If order is already paid, return PAID immediately
+      if order.payment_status == "paid"
+        return render json: {
+          data: serialize_data(order, OrderSerializer),
+          order: serialize_data(order, OrderSerializer),
+          payment_gateway_status: "PAID",
+          status: "PAID",
+          message: "Payment already confirmed successfully"
+        }, status: :ok
+      end
+
+      # Resolve gateway reference from linked payment attempt if missing on order
+      gateway_ref = order.gateway_order_reference.presence
+      if gateway_ref.blank?
+        linked_attempt = PaymentAttempt.where(buyer: order.buyer)
+                                       .where("result_payload -> 'order_ids' @> ?", [order.id].to_json)
+                                       .order(id: :desc)
+                                       .first
+        if linked_attempt&.gateway_order_reference.present?
+          gateway_ref = linked_attempt.gateway_order_reference
+          order.update_columns(gateway_order_reference: gateway_ref)
         end
       end
 
-      return render json: { error: "Cashfree reference missing" }, status: :unprocessable_entity if order.gateway_order_reference.blank?
+      return render json: { error: "Cashfree reference missing" }, status: :unprocessable_entity if gateway_ref.blank?
 
-      payload = CashfreeService.new.fetch_order(order.gateway_order_reference)
+      payload = CashfreeService.new.fetch_order(gateway_ref)
       status = payload["order_status"].to_s.upcase
 
       case status
       when "PAID"
         order.with_lock do
-          next if order.payment_status == "paid"
+          unless order.payment_status == "paid"
+            notify_admins_of_amount_mismatch(order, order.total_amount, payload["order_amount"]) if amount_mismatch?(order.total_amount, payload["order_amount"])
 
-          notify_admins_of_amount_mismatch(order, order.total_amount, payload["order_amount"]) if amount_mismatch?(order.total_amount, payload["order_amount"])
-
-          order.mark_payment_paid!(reference: payload["cf_payment_id"] || payload["payment_id"], gateway_payload: payload)
-          if order.status == "pending"
-            if order.seller_dealer.present?
-              OrderLifecycleService.new(
-                order: order,
-                actor: current_user,
-                status_note: "Online payment confirmed successfully."
-              ).transition!(next_status: "processing")
-              EmailDispatcherService.retail_order_accepted(order)
-            else
-              B2cOrderBroadcastService.new(order: order, actor: order.buyer).broadcast!
+            order.mark_payment_paid!(reference: payload["cf_payment_id"] || payload["payment_id"], gateway_payload: payload)
+            if order.status == "pending"
+              if order.seller_dealer.present?
+                OrderLifecycleService.new(
+                  order: order,
+                  actor: current_user,
+                  status_note: "Online payment confirmed successfully."
+                ).transition!(next_status: "processing")
+                EmailDispatcherService.retail_order_accepted(order)
+              else
+                B2cOrderBroadcastService.new(order: order, actor: order.buyer).broadcast!
+              end
             end
           end
         end
@@ -55,14 +99,26 @@ module Api
 
       render json: {
         data: serialize_data(order.reload, OrderSerializer),
-        payment_gateway_status: status
+        order: serialize_data(order.reload, OrderSerializer),
+        payment_gateway_status: status,
+        status: status
       }, status: :ok
     rescue StandardError => e
+      if order&.reload&.payment_status == "paid"
+        return render json: {
+          data: serialize_data(order, OrderSerializer),
+          order: serialize_data(order, OrderSerializer),
+          payment_gateway_status: "PAID",
+          status: "PAID",
+          message: "Payment confirmed successfully"
+        }, status: :ok
+      end
       render_error(e)
     end
 
     def cancel_cashfree
-      attempt = scoped_payment_attempts.find_by(id: params[:payment_attempt_id])
+      attempt = scoped_payment_attempts.find_by(id: params[:payment_attempt_id]) ||
+                PaymentAttempt.find_by(id: params[:payment_attempt_id])
       return render json: { error: "Payment attempt not found" }, status: :not_found unless attempt
 
       attempt.update!(
@@ -124,10 +180,7 @@ module Api
 
     private
 
-    def verify_payment_attempt!
-      attempt = PaymentAttempt.find_by(id: params[:payment_attempt_id])
-      return render json: { error: "Payment attempt not found" }, status: :not_found unless attempt
-
+    def verify_payment_attempt_record!(attempt)
       checkout_context = attempt.result_payload&.dig("checkout_context")
 
       if checkout_context == "b2b_order"
@@ -145,20 +198,42 @@ module Api
             b2b_order: B2bOrderSerializer.render(order),
             payment_attempt: serialize_payment_attempt(attempt.reload),
             payment_gateway_status: "PAID",
+            status: "PAID",
             message: "Payment completed successfully"
           }, status: :ok
         end
 
         return render json: { error: "Payment link expired" }, status: :unprocessable_entity if order.expires_at.present? && order.expires_at <= Time.current
-      elsif current_admin || current_dealer || current_account
-        attempt = scoped_payment_attempts.find_by(id: params[:payment_attempt_id])
-
-        return render json: { error: "Payment attempt not found" }, status: :not_found unless attempt
       end
- 
-      return render json: { error: "Cashfree reference missing" }, status: :unprocessable_entity if attempt.gateway_order_reference.blank?
 
-      payload = CashfreeService.new.fetch_order(attempt.gateway_order_reference)
+      # Fast path: If attempt is already paid/processed, finalize and return PAID
+      if attempt.paid? || attempt.processed?
+        finalization = PaymentAttemptFinalizationService.new(payment_attempt: attempt).call
+        if finalization.b2b_order.present?
+          return render json: {
+            data: B2bOrderSerializer.render(finalization.b2b_order),
+            b2b_order: B2bOrderSerializer.render(finalization.b2b_order),
+            payment_attempt: serialize_payment_attempt(attempt.reload),
+            payment_gateway_status: "PAID",
+            status: "PAID",
+            message: "Payment confirmed successfully"
+          }, status: :ok
+        end
+
+        return render json: {
+          data: OrderSerializer.render(finalization.orders),
+          orders: OrderSerializer.render(finalization.orders),
+          payment_attempt: serialize_payment_attempt(attempt.reload),
+          payment_gateway_status: "PAID",
+          status: "PAID",
+          message: "Payment confirmed successfully"
+        }, status: :ok
+      end
+
+      gateway_ref = attempt.gateway_order_reference.presence || attempt.attempt_number
+      return render json: { error: "Cashfree reference missing" }, status: :unprocessable_entity if gateway_ref.blank?
+
+      payload = CashfreeService.new.fetch_order(gateway_ref)
       status = payload["order_status"].to_s.upcase
 
       case status
@@ -173,7 +248,6 @@ module Api
             payment_gateway_payload: payload,
             payment_confirmed_at: Time.current,
             payment_token: SecureRandom.hex(32)
-            # expires_at: Time.current
           )
 
           return render json: {
@@ -181,6 +255,7 @@ module Api
             b2b_order: B2bOrderSerializer.render(finalization.b2b_order),
             payment_attempt: serialize_payment_attempt(attempt.reload),
             payment_gateway_status: status,
+            status: status,
             message: "B2B request broadcasted after successful payment"
           }, status: :ok
         end
@@ -189,6 +264,7 @@ module Api
           orders: OrderSerializer.render(finalization.orders),
           payment_attempt: serialize_payment_attempt(attempt.reload),
           payment_gateway_status: status,
+          status: status,
           message: "#{finalization.orders.size} order(s) created after successful payment"
         }, status: :ok
 
@@ -198,6 +274,7 @@ module Api
           data: serialize_payment_attempt(attempt.reload),
           payment_attempt: serialize_payment_attempt(attempt.reload),
           payment_gateway_status: status,
+          status: status,
           message: "Payment is still pending"
         }, status: :ok
       else
@@ -206,9 +283,23 @@ module Api
           data: serialize_payment_attempt(attempt.reload),
           payment_attempt: serialize_payment_attempt(attempt.reload),
           payment_gateway_status: status,
+          status: status,
           message: "Payment failed."
         }, status: :ok
       end
+    rescue StandardError => e
+      if attempt&.reload&.processed? || attempt&.reload&.paid?
+        finalization = PaymentAttemptFinalizationService.new(payment_attempt: attempt).call
+        return render json: {
+          data: OrderSerializer.render(finalization.orders),
+          orders: OrderSerializer.render(finalization.orders),
+          payment_attempt: serialize_payment_attempt(attempt.reload),
+          payment_gateway_status: "PAID",
+          status: "PAID",
+          message: "Payment confirmed successfully"
+        }, status: :ok
+      end
+      render_error(e)
     end
 
     def mark_attempt_paid!(attempt, payload)

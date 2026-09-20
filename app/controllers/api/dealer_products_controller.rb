@@ -563,9 +563,16 @@ module Api
           :name, :slug, :desc, :material, :brand_id, :category_id,
           :is_featured, :is_new, :tax_rate, :price, :selling_price, :dealer_price,
           :dealer_selling_price, :discount_percentage, :variant_sku, :hsn_code,
+          :primary_media_blob_id, :primary_new_media_index,
+          :purge_media_blob_ids, { purge_media_blob_ids: [] },
           media: [],
           features: [], care_instructions: [],
           product_specifications_attributes: [:id, :key, :value, :_destroy],
+          product_variant_colors_attributes: [
+            :id, :color_name, :color_hex, :primary_media_blob_id, :primary_new_media_index, :_destroy,
+            :purge_media_blob_ids, { purge_media_blob_ids: [] },
+            { media: [] }
+          ],
           product_variants_attributes: [
             :id, :variant_sku, :price, :selling_price, :dealer_price, :hsn_code,
             :dealer_selling_price, :discount_percentage, :is_active, :_destroy,
@@ -749,7 +756,7 @@ module Api
 
     def build_fallback_variant_attributes(attrs)
       variant_attrs = {}
-      %w[variant_sku price selling_price dealer_price dealer_selling_price discount_percentage product_variant_colors_attributes].each do |key|
+      %w[variant_sku price selling_price dealer_price dealer_selling_price discount_percentage].each do |key|
         value = attrs.delete(key)
         variant_attrs[key] = value if value.present?
       end

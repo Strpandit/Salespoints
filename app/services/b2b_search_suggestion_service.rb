@@ -152,8 +152,8 @@ class B2bSearchSuggestionService
                         .where.not(dealer_id: buyer_dealer.id)
                         .joins(:product)
                         .left_outer_joins(dealer: :dealer_profile)
-                        .left_outer_joins(product: [:brand, :category, :product_specifications])
-                        .left_outer_joins(product_variant: :product_variant_colors)
+                        .left_outer_joins(product: [:brand, :category, :product_specifications, :product_variant_colors])
+                        .left_outer_joins(:product_variant)
 
     return [] if tokens.empty?
 
