@@ -1,7 +1,8 @@
 class DealerProfile < ApplicationRecord
   include AttachableMediaValidations
 
-  BANK_VERIFICATION_STATUSES = %w[unverified verified failed].freeze
+  BANK_VERIFICATION_STATUSES = %w[unverified verified failed pending_admin_approval].freeze
+  BANK_CHANGE_STATUSES = %w[none pending approved rejected].freeze
 
   belongs_to :dealer
   has_many_attached :store_image
@@ -13,6 +14,7 @@ class DealerProfile < ApplicationRecord
 
   validates :business_name, :aadhar_number, presence: true
   validates :bank_verification_status, inclusion: { in: BANK_VERIFICATION_STATUSES }
+  validates :bank_change_status, inclusion: { in: BANK_CHANGE_STATUSES }, allow_nil: true
   validate :attachments_validity
 
   def bank_verified?
@@ -20,6 +22,18 @@ class DealerProfile < ApplicationRecord
       bank_verified_at.present? &&
       bank_account_number.present? &&
       ifsc_code.present?
+  end
+
+  def bank_locked?
+    bank_verified? && bank_change_status != "approved"
+  end
+
+  def bank_change_pending?
+    bank_change_status == "pending"
+  end
+
+  def bank_change_approved?
+    bank_change_status == "approved"
   end
 
   def masked_bank_account_number

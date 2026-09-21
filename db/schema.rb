@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.0].define(version: 2026_09_18_000001) do
+ActiveRecord::Schema[8.0].define(version: 2026_09_21_000001) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -253,6 +253,9 @@ ActiveRecord::Schema[8.0].define(version: 2026_09_18_000001) do
     t.jsonb "payment_gateway_payload", default: {}
     t.string "invoice_number"
     t.string "tracking_id"
+    t.decimal "convenience_fee_amount", precision: 12, scale: 2, default: "0.0", null: false
+    t.decimal "convenience_fee_gst", precision: 12, scale: 2, default: "0.0", null: false
+    t.decimal "total_convenience_fee", precision: 12, scale: 2, default: "0.0", null: false
     t.index ["broadcast_attempts"], name: "index_b2b_orders_on_broadcast_attempts"
     t.index ["buyer_dealer_id"], name: "index_b2b_orders_on_buyer_dealer_id"
     t.index ["buyer_payment_attempt_id"], name: "index_b2b_orders_on_buyer_payment_attempt_id"
@@ -539,6 +542,13 @@ ActiveRecord::Schema[8.0].define(version: 2026_09_18_000001) do
     t.string "verified_name_at_bank"
     t.text "last_bank_verification_error"
     t.jsonb "bank_verification_payload", default: {}, null: false
+    t.string "bank_change_status", default: "none", null: false
+    t.datetime "bank_change_requested_at"
+    t.text "bank_change_reason"
+    t.datetime "bank_change_reviewed_at"
+    t.integer "bank_change_reviewed_by_id"
+    t.index ["bank_change_reviewed_by_id"], name: "index_dealer_profiles_on_bank_change_reviewed_by_id"
+    t.index ["bank_change_status"], name: "index_dealer_profiles_on_bank_change_status"
     t.index ["bank_verification_reference"], name: "index_dealer_profiles_on_bank_verification_reference"
     t.index ["bank_verification_status"], name: "index_dealer_profiles_on_bank_verification_status"
     t.index ["dealer_id"], name: "index_dealer_profiles_on_dealer_id"
@@ -761,6 +771,9 @@ ActiveRecord::Schema[8.0].define(version: 2026_09_18_000001) do
     t.datetime "accepted_at"
     t.string "invoice_number"
     t.bigint "dealer_offer_id"
+    t.decimal "convenience_fee_amount", precision: 12, scale: 2, default: "0.0", null: false
+    t.decimal "convenience_fee_gst", precision: 12, scale: 2, default: "0.0", null: false
+    t.decimal "total_convenience_fee", precision: 12, scale: 2, default: "0.0", null: false
     t.index ["buyer_type", "buyer_id"], name: "index_orders_on_buyer_type_and_buyer_id"
     t.index ["dealer_offer_id"], name: "index_orders_on_dealer_offer_id"
     t.index ["expires_at"], name: "index_orders_on_expires_at"

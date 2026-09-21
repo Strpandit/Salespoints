@@ -234,27 +234,6 @@ class CashfreeService
     raise StandardError, "Cashfree Transfer Status Error: #{e.message}"
   end
 
-  def verify_ifsc(ifsc_code:, verification_id: nil)
-    raise StandardError, "Cashfree is not configured" unless configured?
-    raise StandardError, "IFSC code is required" if ifsc_code.blank?
-
-    verification_id ||= "IFSC_VER_#{Time.now.to_i}_#{SecureRandom.hex(4)}"
-
-    response = self.class.post(
-      "#{verification_base_url}/ifsc",
-      headers: verification_headers,
-      body: { ifsc: ifsc_code.to_s.strip.upcase, verification_id: verification_id }.to_json,
-      timeout: REQUEST_TIMEOUT
-    )
-
-    parsed = parse_response(response)
-    raise StandardError, parsed["message"].presence || "Unable to verify IFSC code" unless response.success?
-
-    parsed
-  rescue => e
-    raise StandardError, "Cashfree IFSC Verification Error: #{e.message}"
-  end
-
   def verify_bank_account(account_holder_name:, phone:, bank_account:, ifsc_code:, reference_id:)
     raise StandardError, "Cashfree is not configured" unless configured?
     raise StandardError, "Bank account is required" if bank_account.blank?

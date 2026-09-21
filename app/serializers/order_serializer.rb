@@ -118,10 +118,6 @@ class OrderSerializer < ApplicationSerializer
 
   private
 
-  # Commission/settlement figures and the buyer's email are internal marketplace
-  # data — only admins (and the buyer themselves, for their own email) should see
-  # them. Anything not explicitly recognized (dealer, public, unauthenticated)
-  # gets the restricted view by default.
   def admin_viewer?
     options[:viewer] == :admin
   end

@@ -140,8 +140,14 @@ Rails.application.routes.draw do
     resources :dealers do
       get :active_dealers, on: :collection
       get :nearby, on: :collection
+      get :bank_change_requests, on: :collection
       get :admin_overview, on: :member
       post :verify_bank_account, on: :member
+      post :request_manual_bank_verification, on: :member
+      post :approve_manual_bank_account, on: :member
+      post :request_bank_change, on: :member
+      post :approve_bank_change, on: :member
+      post :reject_bank_change, on: :member
       patch :block, on: :member
       patch :unblock, on: :member
       patch :approve, on: :member

@@ -2,10 +2,11 @@ module Api
   class DealersController < ApplicationController
     skip_before_action :authenticate_request!, only: [:verify_otp, :resend_signup_otp, :check_signup_token]
     # before_action :authenticate_request!, except: [:verify_otp]
-    before_action :require_admin, only: [:create, :index, :active_dealers, :block, :unblock, :destroy, :approve, :reject, :admin_overview]
-    before_action :require_admin_approver!, only: [:approve, :reject]
-    before_action :set_dealer, only: [:show, :update, :destroy, :block, :unblock, :approve, :reject, :admin_overview, :verify_bank_account]
-    before_action :authorize_dealer_update, only: [:update, :show, :verify_bank_account]
+    before_action :require_admin, only: [:create, :index, :active_dealers, :block, :unblock, :destroy, :approve, :reject, :admin_overview, :approve_manual_bank_account, :bank_change_requests, :approve_bank_change, :reject_bank_change]
+    before_action :require_admin_approver!, only: [:approve, :reject, :approve_manual_bank_account]
+    before_action :require_super_admin!, only: [:bank_change_requests, :approve_bank_change, :reject_bank_change]
+    before_action :set_dealer, only: [:show, :update, :destroy, :block, :unblock, :approve, :reject, :admin_overview, :verify_bank_account, :request_manual_bank_verification, :approve_manual_bank_account, :request_bank_change, :approve_bank_change, :reject_bank_change]
+    before_action :authorize_dealer_update, only: [:update, :show, :verify_bank_account, :request_manual_bank_verification, :request_bank_change]
 
     def check_signup_token
       dealer = find_signup_dealer
@@ -380,7 +381,9 @@ module Api
             account_holder_name: result.account_holder_name,
             ifsc_code: result.ifsc_code,
             masked_account_number: "XXXXXX#{result.account_number.to_s.last(4)}",
-            status: "pending"
+            status: "pending",
+            attempts_remaining: result.attempts_remaining,
+            cooldown_seconds: result.cooldown_seconds
           },
           message: "Bank account verification is in progress"
         }, status: :accepted
@@ -397,9 +400,187 @@ module Api
           account_holder_name: result.account_holder_name,
           ifsc_code: result.ifsc_code,
           masked_account_number: "XXXXXX#{result.account_number.to_s.last(4)}",
-          status: "verified"
+          status: "verified",
+          attempts_remaining: result.attempts_remaining,
+          cooldown_seconds: result.cooldown_seconds
         },
         message: "Bank account verified successfully"
+      }, status: :ok
+    rescue StandardError => e
+      service = DealerBankVerificationService.new(dealer: @dealer)
+      render json: {
+        error: e.message,
+        attempts_remaining: service.attempts_remaining,
+        cooldown_seconds: service.cooldown_remaining_seconds
+      }, status: :unprocessable_entity
+    end
+
+    def request_manual_bank_verification
+      service = DealerBankVerificationService.new(dealer: @dealer)
+      profile = @dealer.dealer_profile || @dealer.build_dealer_profile
+      
+      profile = service.request_manual_approval!(
+        profile: profile,
+        account_number: params[:bank_account_number],
+        confirm_account_number: params[:confirm_bank_account_number],
+        account_holder_name: params[:account_holder_name],
+        ifsc_code: params[:ifsc_code],
+        bank_name: params[:bank_name]
+      )
+
+      if params[:cancel_cheque].present?
+        profile.cancel_cheque.attach(params[:cancel_cheque])
+      end
+
+      notify_admins_entity_updated(@dealer)
+      render json: {
+        message: "Bank details submitted for manual admin approval",
+        status: "pending_admin_approval",
+        dealer: serialize_resource(@dealer, DealerSerializer, base_url: request.base_url)
+      }, status: :ok
+    rescue StandardError => e
+      render_error(e)
+    end
+
+    def approve_manual_bank_account
+      require_admin
+      return if performed?
+
+      profile = @dealer.dealer_profile
+      unless profile.present? && profile.bank_account_number.present?
+        return render json: { error: "No bank details found for this dealer" }, status: :unprocessable_entity
+      end
+
+      service = DealerBankVerificationService.new(dealer: @dealer)
+      admin_user = current_admin || (defined?(current_user) ? current_user : nil) || AdminUser.first
+      service.admin_manual_approve!(profile: profile, admin_user: admin_user)
+
+      notify_admins_entity_updated(@dealer)
+      render json: {
+        message: "Dealer bank details manually verified by admin successfully",
+        status: "verified",
+        dealer: serialize_resource(@dealer, DealerSerializer, base_url: request.base_url)
+      }, status: :ok
+    rescue StandardError => e
+      render_error(e)
+    end
+
+    def request_bank_change
+      profile = @dealer.dealer_profile
+      unless profile.present? && profile.bank_verified?
+        return render json: { error: "Bank account is not verified yet." }, status: :unprocessable_entity
+      end
+
+      if profile.bank_change_pending?
+        return render json: { error: "A bank change request is already pending review." }, status: :unprocessable_entity
+      end
+
+      profile.update!(
+        bank_change_status: "pending",
+        bank_change_requested_at: Time.current,
+        bank_change_reason: params[:reason].to_s.presence
+      )
+
+      AdminUser.where(status: "active").select(&:super_admin?).each do |admin_user|
+        Notification.create(
+          receiver: admin_user,
+          actor: @dealer,
+          notifiable: @dealer,
+          notification_type: "bank_change_request",
+          title: "Bank Change Request",
+          body: "Dealer #{@dealer.full_name} (#{profile.business_name}) has requested to change their verified bank account details.",
+          payload: { dealer_id: @dealer.id, requested_at: Time.current.iso8601 }
+        )
+      end
+
+      notify_admins_entity_updated(@dealer)
+      render json: {
+        message: "Bank change request submitted successfully. Super admin review is pending.",
+        status: "pending",
+        dealer: serialize_resource(@dealer, DealerSerializer, base_url: request.base_url)
+      }, status: :ok
+    rescue StandardError => e
+      render_error(e)
+    end
+
+    def bank_change_requests
+      dealers = Dealer.joins(:dealer_profile)
+                      .where(dealer_profiles: { bank_change_status: "pending" })
+                      .order("dealer_profiles.bank_change_requested_at DESC")
+
+      render json: {
+        data: dealers.map { |d| serialize_resource(d, DealerSerializer, base_url: request.base_url) },
+        count: dealers.count,
+        message: "Bank change requests fetched successfully"
+      }, status: :ok
+    end
+
+    def approve_bank_change
+      profile = @dealer.dealer_profile
+      unless profile.present?
+        return render json: { error: "Dealer profile not found." }, status: :not_found
+      end
+
+      profile.update!(
+        bank_change_status: "approved",
+        bank_change_reviewed_at: Time.current,
+        bank_change_reviewed_by_id: current_admin&.id,
+        bank_verification_status: "unverified",
+        bank_verification_reference: nil,
+        bank_verified_at: nil,
+        verified_bank_name: nil,
+        verified_name_at_bank: nil,
+        last_bank_verification_error: nil,
+        bank_verification_payload: {}
+      )
+
+      Notification.create(
+        receiver: @dealer,
+        actor: current_admin,
+        notifiable: @dealer,
+        notification_type: "bank_change_approved",
+        title: "Bank Change Request Approved",
+        body: "Your request to change bank details has been approved by Super Admin. You can now enter and verify your new bank account.",
+        payload: { status: "approved", approved_at: Time.current.iso8601 }
+      )
+
+      notify_admins_entity_updated(@dealer)
+      render json: {
+        message: "Bank change request approved successfully. Dealer can now update bank details.",
+        status: "approved",
+        dealer: serialize_resource(@dealer, DealerSerializer, base_url: request.base_url)
+      }, status: :ok
+    rescue StandardError => e
+      render_error(e)
+    end
+
+    def reject_bank_change
+      profile = @dealer.dealer_profile
+      unless profile.present?
+        return render json: { error: "Dealer profile not found." }, status: :not_found
+      end
+
+      profile.update!(
+        bank_change_status: "rejected",
+        bank_change_reviewed_at: Time.current,
+        bank_change_reviewed_by_id: current_admin&.id
+      )
+
+      Notification.create(
+        receiver: @dealer,
+        actor: current_admin,
+        notifiable: @dealer,
+        notification_type: "bank_change_rejected",
+        title: "Bank Change Request Rejected",
+        body: "Your request to change bank details has been rejected by the administrator.",
+        payload: { status: "rejected", rejected_at: Time.current.iso8601 }
+      )
+
+      notify_admins_entity_updated(@dealer)
+      render json: {
+        message: "Bank change request rejected.",
+        status: "rejected",
+        dealer: serialize_resource(@dealer, DealerSerializer, base_url: request.base_url)
       }, status: :ok
     rescue StandardError => e
       render_error(e)
@@ -679,6 +860,12 @@ module Api
     def require_admin_approver!
       return if current_admin&.approver_admin?
       render json: { error: "Only Super Admin or Sub Admin can approve dealer onboarding" }, status: :forbidden
+    end
+
+    def require_super_admin!
+      unless current_user_type == "AdminUser" && current_admin&.super_admin?
+        render json: { error: "Access denied. Only Super Admin can perform this action." }, status: :forbidden
+      end
     end
 
     def dealer_accessible?(dealer)

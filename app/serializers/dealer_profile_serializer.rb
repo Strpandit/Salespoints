@@ -3,9 +3,14 @@ class DealerProfileSerializer < ApplicationSerializer
              :aadhar_number, :bank_name, :bank_account_number, :masked_bank_account_number, :ifsc_code,
              :account_holder_name, :bank_verification_status, :bank_verification_reference,
              :bank_verified_at, :verified_bank_name, :verified_name_at_bank, :last_bank_verification_error,
+             :bank_change_status, :bank_change_requested_at, :bank_locked,
              :business_address, :business_contact_number, :business_email,
              :work_category, :associated_brands, :store_image, :aadhar_card, :pan_card, 
              :gst_certificate, :cancel_cheque, :brand_invoices, :is_verified, :created_at, :updated_at
+
+  def bank_locked
+    object.bank_locked?
+  end
 
   def store_image
     object.store_image.map { |file| file_payload(file) }
