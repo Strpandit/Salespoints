@@ -1,90 +1,27 @@
-<!DOCTYPE html>
-<html>
-  <head>
-    <meta charset="UTF-8">
-    <style>
-      body {
-        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        margin: 0;
-        padding: 20px;
-      }
-      .container {
-        max-width: 600px;
-        margin: 0 auto;
-        background: white;
-        border-radius: 10px;
-        overflow: hidden;
-        box-shadow: 0 10px 30px rgba(0,0,0,0.2);
-      }
-      .header {
-        background: linear-gradient(135deg, #6bcf7f 0%, #4caf50 100%);
-        color: white;
-        padding: 30px;
-        text-align: center;
-      }
-      .header h2 {
-        margin: 0;
-        font-size: 24px;
-      }
-      .content {
-        padding: 30px;
-      }
-      .response-box {
-        background: #e8f5e9;
-        padding: 15px;
-        border-radius: 5px;
-        border-left: 3px solid #6bcf7f;
-        margin: 20px 0;
-      }
-      .original-message {
-        background: #f9f9f9;
-        padding: 15px;
-        border-radius: 5px;
-        margin: 20px 0;
-        border-left: 3px solid #ccc;
-      }
-      .footer {
-        background: #ecf0f1;
-        padding: 20px;
-        text-align: center;
-        font-size: 12px;
-        color: #7f8c8d;
-        border-top: 1px solid #bdc3c7;
-      }
-    </style>
-  </head>
-  <body>
-    <div class="container">
-      <div class="header">
-        <h2>💬 Response to Your Inquiry</h2>
-      </div>
+<%= mailer_banner(title: "Response to Your Inquiry", subtitle: "SalesPoints Support", badge: "Reply", theme: :success) %>
+<%= mailer_body_open %>
+  <p style="margin: 0 0 16px 0; font-size: 16px; font-weight: 600; color: #0f172a;">
+    Hi <%= @submission.name %>,
+  </p>
 
-      <div class="content">
-        <p>Hi <strong><%= @submission.name %></strong>,</p>
+  <p style="margin: 0 0 8px 0; font-size: 14px; line-height: 1.6; color: #334155;">
+    Thank you for your message! We've reviewed your inquiry and here's our response:
+  </p>
 
-        <p>Thank you for your message! We've reviewed your inquiry and here's our response:</p>
+  <p style="margin: 0 0 12px 0; font-size: 14px; color: #334155;"><strong>Regarding:</strong> <%= @submission.subject %></p>
 
-        <p><strong>Regarding:</strong> <%= @submission.subject %></p>
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color: #ecfdf5; border-left: 3px solid #10b981; border-radius: 6px; margin: 0 0 20px 0;">
+    <tr><td style="padding: 14px 18px; font-size: 14px; color: #065f46; line-height: 1.6;"><%= simple_format(@submission.admin_response) %></td></tr>
+  </table>
 
-        <div class="response-box">
-          <%= simple_format(@submission.admin_response) %>
-        </div>
+  <p style="margin: 0 0 8px 0; font-size: 13px; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px;">Your Original Message</p>
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color: #f8fafc; border-left: 3px solid #cbd5e1; border-radius: 6px; margin: 0 0 20px 0;">
+    <tr><td style="padding: 14px 18px; font-size: 14px; color: #334155; line-height: 1.6;"><%= simple_format(@submission.message) %></td></tr>
+  </table>
 
-        <p><strong>Your Original Message:</strong></p>
-        <div class="original-message">
-          <%= simple_format(@submission.message) %>
-        </div>
-
-        <p>If you have any follow-up questions or need further assistance, please don't hesitate to reach out.</p>
-
-        <p>Thank you for choosing SalesPoints!<br>
-        <strong>SalesPoints Team</strong></p>
-      </div>
-
-      <div class="footer">
-        <p style="margin: 0;">© <%= Date.today.year %> SalesPoints India Pvt. Ltd. All rights reserved.</p>
-      </div>
-    </div>
-  </body>
-</html>
+  <p style="margin: 0; font-size: 13px; line-height: 1.6; color: #475569;">
+    If you have any follow-up questions or need further assistance, please don't hesitate to reach out.<br><br>
+    Thank you for choosing SalesPoints!<br>
+    <strong style="color: #0f172a;">SalesPoints Team</strong>
+  </p>
+<%= mailer_body_close %>

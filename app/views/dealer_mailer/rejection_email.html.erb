@@ -1,72 +1,33 @@
 <% dealer_first_name = @dealer.try(:first_name).presence || "Dealer" %>
 <% dealer_full_name = @dealer.try(:full_name).presence || "#{dealer_first_name} #{@dealer.try(:last_name)}".strip %>
+<%= mailer_banner(title: "Account Application Update", subtitle: "SalesPoints Dealer Onboarding", badge: "Application Status", theme: :danger) %>
+<%= mailer_body_open %>
+  <p style="margin: 0 0 16px 0; font-size: 16px; font-weight: 600; color: #0f172a;">
+    Hello <%= dealer_full_name %>,
+  </p>
 
-<!-- Header Banner -->
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background: linear-gradient(135deg, #0f172a 0%, #334155 100%); background-color: #0f172a; padding: 36px 28px; text-align: center;">
-  <tr>
-    <td align="center">
-      <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin-bottom: 12px;">
-        <tr>
-          <td style="background-color: rgba(239, 68, 68, 0.2); border: 1px solid #ef4444; border-radius: 20px; padding: 4px 14px; font-size: 11px; font-weight: 700; color: #fca5a5; text-transform: uppercase; letter-spacing: 1px;">
-            Application Status
-          </td>
-        </tr>
-      </table>
-      <h1 style="margin: 0; font-size: 24px; font-weight: 800; color: #ffffff; letter-spacing: -0.5px; line-height: 1.3;">
-        Account Application Update
-      </h1>
-      <p style="margin: 8px 0 0 0; font-size: 14px; color: #cbd5e1; line-height: 1.5;">
-        SalesPoints Dealer Onboarding
-      </p>
-    </td>
-  </tr>
-</table>
+  <p style="margin: 0 0 20px 0; font-size: 14px; line-height: 1.6; color: #334155;">
+    Thank you for your interest in partnering with SalesPoints. After reviewing your dealer registration details, our verification team was unable to approve your application at this time.
+  </p>
 
-<!-- Main Content Area -->
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="padding: 32px 28px; background-color: #ffffff;">
-  <tr>
-    <td>
-      <p style="margin: 0 0 14px 0; font-size: 16px; font-weight: 600; color: #0f172a;">
-        Hello <%= dealer_full_name %>,
-      </p>
+  <% if @reason.present? %>
+    <%= mailer_notice(@reason, theme: :danger, title: "Reason / Feedback:") %>
+  <% end %>
 
-      <p style="margin: 0 0 20px 0; font-size: 14px; line-height: 1.6; color: #334155;">
-        Thank you for your interest in partnering with SalesPoints. After reviewing your dealer registration details, our verification team was unable to approve your application at this time.
-      </p>
+  <p style="margin: 0 0 16px 0; font-size: 14px; line-height: 1.6; color: #334155;">
+    If you believe this decision was made in error or if you can provide updated business documents, please contact our support team.
+  </p>
 
-      <% if @reason.present? %>
-      <!-- Reason Card -->
-      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color: #fef2f2; border: 1px solid #fecaca; border-left: 4px solid #ef4444; border-radius: 8px; margin: 20px 0;">
-        <tr>
-          <td style="padding: 16px 20px;">
-            <p style="margin: 0 0 6px 0; font-size: 11px; font-weight: 700; color: #991b1b; text-transform: uppercase; letter-spacing: 0.5px;">
-              Reason / Feedback
-            </p>
-            <p style="margin: 0; font-size: 13px; color: #7f1d1d; line-height: 1.5;">
-              <%= @reason %>
-            </p>
-          </td>
-        </tr>
-      </table>
-      <% end %>
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; margin: 0 0 20px 0;">
+    <tr>
+      <td style="padding: 14px 18px; font-size: 13px; color: #475569; line-height: 1.5;">
+        Need help or have questions? Email us at <a href="mailto:support@salespoints.in" style="color: #2563eb; font-weight: 600;">support@salespoints.in</a>.
+      </td>
+    </tr>
+  </table>
 
-      <p style="margin: 20px 0 16px 0; font-size: 14px; line-height: 1.6; color: #334155;">
-        If you believe this decision was made in error or if you can provide updated business documents, please contact our support team.
-      </p>
-
-      <!-- Support Box -->
-      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; margin: 20px 0;">
-        <tr>
-          <td style="padding: 14px 18px; font-size: 13px; color: #475569; line-height: 1.5;">
-            Need help or have questions? Email us at <a href="mailto:support@salespoints.in" style="color: #2563eb; font-weight: 600;">support@salespoints.in</a>.
-          </td>
-        </tr>
-      </table>
-
-      <p style="margin: 24px 0 0 0; font-size: 13px; line-height: 1.6; color: #475569;">
-        Sincerely,<br>
-        <strong style="color: #0f172a;">SalesPoints Onboarding &amp; Compliance Team</strong>
-      </p>
-    </td>
-  </tr>
-</table>
+  <p style="margin: 0; font-size: 13px; line-height: 1.6; color: #475569;">
+    Sincerely,<br>
+    <strong style="color: #0f172a;">SalesPoints Onboarding &amp; Compliance Team</strong>
+  </p>
+<%= mailer_body_close %>

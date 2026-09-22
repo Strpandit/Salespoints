@@ -1,133 +1,36 @@
-<!DOCTYPE html>
-<html>
-  <head>
-    <meta charset="UTF-8">
-    <style>
-      body {
-        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        margin: 0;
-        padding: 20px;
-      }
-      .container {
-        max-width: 600px;
-        margin: 0 auto;
-        background: white;
-        border-radius: 10px;
-        overflow: hidden;
-        box-shadow: 0 10px 30px rgba(0,0,0,0.2);
-      }
-      .header {
-        background: linear-gradient(135deg, #6bcf7f 0%, #4caf50 100%);
-        color: white;
-        padding: 30px;
-        text-align: center;
-      }
-      .header h2 {
-        margin: 0;
-        font-size: 24px;
-      }
-      .content {
-        padding: 30px;
-      }
-      .ticket-info {
-        background: #f0f0f0;
-        border-radius: 5px;
-        padding: 20px;
-        margin: 20px 0;
-        border-left: 4px solid #6bcf7f;
-      }
-      .info-row {
-        display: flex;
-        justify-content: space-between;
-        margin: 10px 0;
-        font-size: 14px;
-      }
-      .label {
-        font-weight: bold;
-        color: #7f8c8d;
-      }
-      .resolution-box {
-        background: #e8f5e9;
-        padding: 15px;
-        border-radius: 5px;
-        border-left: 3px solid #6bcf7f;
-        margin: 15px 0;
-      }
-      .cta-button {
-        display: inline-block;
-        background: #6bcf7f;
-        color: white;
-        padding: 12px 30px;
-        border-radius: 5px;
-        text-decoration: none;
-        font-weight: bold;
-        margin: 20px 0;
-      }
-      .footer {
-        background: #ecf0f1;
-        padding: 20px;
-        text-align: center;
-        font-size: 12px;
-        color: #7f8c8d;
-        border-top: 1px solid #bdc3c7;
-      }
-    </style>
-  </head>
-  <body>
-    <div class="container">
-      <div class="header">
-        <h2>✅ Ticket Resolved</h2>
-      </div>
+<%= mailer_banner(title: "Ticket Resolved", subtitle: "SalesPoints Support Team", badge: "✓ Resolved", theme: :success) %>
+<%= mailer_body_open %>
+  <p style="margin: 0 0 16px 0; font-size: 16px; font-weight: 600; color: #0f172a;">
+    Hi <%= @requester_name %>,
+  </p>
 
-      <div class="content">
-        <p>Hi <strong><%= @requester_name %></strong>,</p>
+  <p style="margin: 0 0 20px 0; font-size: 14px; line-height: 1.6; color: #334155;">
+    Great news! Your support ticket has been resolved by our support team.
+  </p>
 
-        <p>Great news! Your support ticket has been resolved by our support team.</p>
+  <%= mailer_info_table([
+    ["Ticket Number", @ticket.ticket_number],
+    ["Subject", @ticket.subject],
+    ["Resolved At", @ticket.resolved_at.strftime("%B %d, %Y at %I:%M %p")]
+  ]) %>
 
-        <div class="ticket-info">
-          <div class="info-row">
-            <span class="label">Ticket Number:</span>
-            <span><strong><%= @ticket.ticket_number %></strong></span>
-          </div>
-          <div class="info-row">
-            <span class="label">Subject:</span>
-            <span><%= @ticket.subject %></span>
-          </div>
-          <div class="info-row">
-            <span class="label">Resolved At:</span>
-            <span><%= @ticket.resolved_at.strftime("%B %d, %Y at %I:%M %p") %></span>
-          </div>
-        </div>
+  <p style="margin: 0 0 8px 0; font-size: 13px; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px;">Resolution Summary</p>
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color: #ecfdf5; border-left: 3px solid #10b981; border-radius: 6px; margin: 0 0 20px 0;">
+    <tr><td style="padding: 14px 18px; font-size: 14px; color: #065f46; line-height: 1.6;"><%= simple_format(@ticket.resolution_summary) %></td></tr>
+  </table>
 
-        <p><strong>Resolution Summary:</strong></p>
-        <div class="resolution-box">
-          <%= simple_format(@ticket.resolution_summary) %>
-        </div>
+  <%= mailer_button(url: "#{ENV['FRONTEND_URL']}/support/tickets/#{@ticket.ticket_number}", text: "View Complete Ticket", theme: :success) %>
 
-        <p>
-          <a href="<%= ENV['FRONTEND_URL'] %>/support/tickets/<%= @ticket.ticket_number %>" class="cta-button">
-            View Complete Ticket
-          </a>
-        </p>
+  <p style="margin: 0 0 8px 0; font-size: 15px; font-weight: 700; color: #0f172a;">Next Steps</p>
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom: 20px;">
+    <tr><td style="padding: 4px 0; font-size: 13px; color: #334155;">&bull; The ticket will automatically close in 7 days</td></tr>
+    <tr><td style="padding: 4px 0; font-size: 13px; color: #334155;">&bull; If the issue recurs, you can reopen it anytime</td></tr>
+    <tr><td style="padding: 4px 0; font-size: 13px; color: #334155;">&bull; Please provide feedback on your support experience</td></tr>
+  </table>
 
-        <h3>Next Steps</h3>
-        <ul>
-          <li>The ticket will automatically close in 7 days</li>
-          <li>If the issue recurs, you can reopen it anytime</li>
-          <li>Please provide feedback on your support experience</li>
-        </ul>
-
-        <p>We appreciate your patience and would love to hear your feedback. If you have a few minutes, please let us know how we did!</p>
-
-        <p>Thank you for using SalesPoints!<br>
-        <strong>SalesPoints Support Team</strong></p>
-      </div>
-
-      <div class="footer">
-        <p style="margin: 0;">© <%= Date.today.year %> SalesPoints India Pvt. Ltd. All rights reserved.</p>
-        <p style="margin: 10px 0 0 0;">Ticket ID: <%= @ticket.id %></p>
-      </div>
-    </div>
-  </body>
-</html>
+  <p style="margin: 0; font-size: 13px; line-height: 1.6; color: #475569;">
+    We appreciate your patience and would love to hear your feedback. Thank you for using SalesPoints!<br>
+    <strong style="color: #0f172a;">SalesPoints Support Team</strong>
+  </p>
+  <p style="margin: 16px 0 0 0; font-size: 11px; color: #94a3b8;">Ticket ID: <%= @ticket.id %></p>
+<%= mailer_body_close %>

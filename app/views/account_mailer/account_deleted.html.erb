@@ -1,93 +1,26 @@
-<!DOCTYPE html>
-<html>
-  <head>
-    <meta charset="UTF-8">
-    <style>
-      body {
-        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-        background: #f5f5f5;
-        margin: 0;
-        padding: 20px;
-      }
-      .container {
-        max-width: 600px;
-        margin: 0 auto;
-        background: white;
-        border-radius: 8px;
-        overflow: hidden;
-        box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-      }
-      .header {
-        background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%);
-        color: white;
-        padding: 20px;
-        text-align: center;
-      }
-      .header h2 {
-        margin: 0;
-        font-size: 20px;
-      }
-      .content {
-        padding: 30px;
-      }
-      .info-block {
-        background: #ffe8e8;
-        padding: 15px;
-        border-radius: 5px;
-        margin: 20px 0;
-        border-left: 4px solid #e74c3c;
-      }
-      .footer {
-        background: #ecf0f1;
-        padding: 20px;
-        text-align: center;
-        font-size: 12px;
-        color: #7f8c8d;
-        border-top: 1px solid #bdc3c7;
-      }
-      .warning-banner {
-        background: #fff5e6;
-        border-left: 4px solid #f39c12;
-        padding: 15px;
-        margin: 20px 0;
-      }
-    </style>
-  </head>
-  <body>
-    <div class="container">
-      <div class="header">
-        <h2>Account Deletion Confirmation</h2>
-      </div>
+<%= mailer_banner(title: "Account Deletion Confirmed", subtitle: "SalesPoints Account Security", badge: "Confirmation", theme: :neutral) %>
+<%= mailer_body_open %>
+  <p style="margin: 0 0 16px 0; font-size: 16px; font-weight: 600; color: #0f172a;">Dear User,</p>
 
-      <div class="content">
-        <p>Dear User,</p>
+  <p style="margin: 0 0 20px 0; font-size: 14px; line-height: 1.6; color: #334155;">
+    This email confirms that your SalesPoints account has been permanently deleted.
+  </p>
 
-        <p>This email confirms that your SalesPoints account has been permanently deleted.</p>
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color: #fffbeb; border-left: 4px solid #f59e0b; border-radius: 6px; margin: 0 0 20px 0;">
+    <tr>
+      <td style="padding: 14px 18px; font-size: 13px; color: #92400e; line-height: 1.7;">
+        <strong>Important Information:</strong><br>
+        &bull; Your account data has been securely removed<br>
+        &bull; You can create a new account anytime using this email<br>
+        &bull; Any active orders will be cancelled<br>
+        &bull; Wallet balance and loyalty points have been forfeited
+      </td>
+    </tr>
+  </table>
 
-        <div class="warning-banner">
-          <p style="margin: 0; color: #e67e22; font-weight: bold;">ℹ️ Important Information</p>
-          <ul style="margin: 10px 0; padding-left: 20px;">
-            <li>Your account data has been securely removed</li>
-            <li>You can create a new account anytime using this email</li>
-            <li>Any active orders will be cancelled</li>
-            <li>Wallet balance and loyalty points have been forfeited</li>
-          </ul>
-        </div>
+  <p style="margin: 0 0 12px 0; font-size: 14px; line-height: 1.6; color: #334155;">
+    If you believe this deletion was made in error or need assistance, please contact our support team immediately.
+  </p>
 
-        <p>If you believe this deletion was made in error or need assistance, please contact our support team immediately.</p>
-
-        <div class="info-block">
-          <p style="margin: 0; color: #c0392b; font-weight: bold;">Deletion Timestamp<br></p>
-          <p style="margin: 10px 0 0 0; color: #555;">
-            <%= Time.current.strftime("%B %d, %Y at %I:%M %p") %>
-          </p>
-        </div>
-      </div>
-
-      <div class="footer">
-        <p>This is an automated confirmation email from SalesPoints.</p>
-        <p>© <%= Time.current.year %> SalesPoints India Pvt. Ltd. All rights reserved.</p>
-      </div>
-    </div>
-  </body>
-</html>
+  <%= mailer_info_table([["Deletion Timestamp", Time.current.strftime("%B %d, %Y at %I:%M %p")]]) %>
+<%= mailer_body_close %>

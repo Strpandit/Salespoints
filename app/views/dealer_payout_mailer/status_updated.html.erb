@@ -1,17 +1,21 @@
-<h2>SalesPoints - Payout Status Update</h2>
-<p>Dear <%= @dealer.full_name.presence || @dealer.email %>,</p>
+<%= mailer_banner(title: "Payout Status Update", subtitle: "The status of your payout request has changed.", badge: "SalesPoints Payout Desk", theme: :info) %>
+<%= mailer_body_open %>
+  <p style="margin: 0 0 18px 0; font-size: 15px; color: #334155;">Dear <%= @dealer.full_name.presence || @dealer.email %>,</p>
 
-<p>The status of your payout request <strong><%= @payout.request_number %></strong> has been updated to: <strong><%= @payout.status.to_s.humanize.titleize %></strong>.</p>
+  <p style="margin: 0 0 18px 0; font-size: 14px; line-height: 1.6; color: #334155;">
+    The status of your payout request <strong><%= @payout.request_number %></strong> has been updated to: <strong><%= @payout.status.to_s.humanize.titleize %></strong>.
+  </p>
 
-<h3>Details</h3>
-<ul>
-  <li><strong>Request Number:</strong> <%= @payout.request_number %></li>
-  <li><strong>Amount:</strong> ₹<%= sprintf("%.2f", @payout.amount) %></li>
-  <li><strong>Status:</strong> <%= @payout.status.to_s.humanize.titleize %></li>
-  <% if @payout.admin_note.present? %>
-    <li><strong>Note:</strong> <%= @payout.admin_note %></li>
-  <% end %>
-</ul>
+  <%= mailer_info_table([
+    ["Request Number", @payout.request_number],
+    ["Amount", "₹#{sprintf("%.2f", @payout.amount)}"],
+    ["Status", @payout.status.to_s.humanize.titleize],
+    *(@payout.admin_note.present? ? [["Note", @payout.admin_note]] : [])
+  ]) %>
 
-<p>Thank you for partnering with SalesPoints.</p>
-<p>Best Regards,<br><strong>SalesPoints India Pvt. Ltd.</strong></p>
+  <p style="margin: 0; font-size: 13px; line-height: 1.6; color: #475569;">
+    Thank you for partnering with SalesPoints.<br><br>
+    Best Regards,<br>
+    <strong style="color: #0f172a;">SalesPoints India Pvt. Ltd.</strong>
+  </p>
+<%= mailer_body_close %>

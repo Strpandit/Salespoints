@@ -1,16 +1,21 @@
-<h2>SalesPoints - Payout Request Alert</h2>
-<p>Dear <%= @dealer.full_name.presence || @dealer.email %>,</p>
+<%= mailer_banner(title: "Payout Request Alert", subtitle: "There was an issue processing your payout request.", badge: "Action Required", theme: :danger) %>
+<%= mailer_body_open %>
+  <p style="margin: 0 0 18px 0; font-size: 15px; color: #334155;">Dear <%= @dealer.full_name.presence || @dealer.email %>,</p>
 
-<p>There was an issue processing your payout request <strong><%= @payout.request_number %></strong>.</p>
+  <p style="margin: 0 0 18px 0; font-size: 14px; line-height: 1.6; color: #334155;">
+    There was an issue processing your payout request <strong><%= @payout.request_number %></strong>.
+  </p>
 
-<h3>Details</h3>
-<ul>
-  <li><strong>Request Number:</strong> <%= @payout.request_number %></li>
-  <li><strong>Amount:</strong> ₹<%= sprintf("%.2f", @payout.amount) %></li>
-  <li><strong>Reason / Error:</strong> <%= @error_message.presence || 'Payment transfer failed' %></li>
-</ul>
+  <%= mailer_info_table([
+    ["Request Number", @payout.request_number],
+    ["Amount", "₹#{sprintf("%.2f", @payout.amount)}"],
+    ["Reason / Error", @error_message.presence || 'Payment transfer failed']
+  ]) %>
 
-<p>Our finance team has been notified. Any hold on your available balance has been safely restored.</p>
-<p>If you have any questions, please reach out to SalesPoints Support.</p>
+  <%= mailer_notice("Our finance team has been notified. Any hold on your available balance has been safely restored. If you have any questions, please reach out to SalesPoints Support.", theme: :danger) %>
 
-<p>Best Regards,<br><strong>SalesPoints India Pvt. Ltd.</strong></p>
+  <p style="margin: 0; font-size: 13px; line-height: 1.6; color: #475569;">
+    Best Regards,<br>
+    <strong style="color: #0f172a;">SalesPoints India Pvt. Ltd.</strong>
+  </p>
+<%= mailer_body_close %>

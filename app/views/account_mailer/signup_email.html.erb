@@ -1,138 +1,38 @@
-<!DOCTYPE html>
-<html>
-  <head>
-    <meta charset="UTF-8">
-    <style>
-      body {
-        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        margin: 0;
-        padding: 20px;
-      }
-      .container {
-        max-width: 600px;
-        margin: 0 auto;
-        background: white;
-        border-radius: 10px;
-        overflow: hidden;
-        box-shadow: 0 10px 30px rgba(0,0,0,0.2);
-      }
-      .header {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        color: white;
-        padding: 30px;
-        text-align: center;
-      }
-      .header h2 {
-        margin: 0;
-        font-size: 24px;
-      }
-      .content {
-        padding: 30px;
-      }
-      .welcome-box {
-        background: #f0f0f0;
-        border-radius: 5px;
-        padding: 20px;
-        margin: 20px 0;
-        border-left: 4px solid #667eea;
-      }
-      .next-steps {
-        background: #f9f9f9;
-        padding: 20px;
-        border-radius: 5px;
-        margin: 20px 0;
-      }
-      .step {
-        display: flex;
-        margin: 10px 0;
-      }
-      .step-number {
-        background: #667eea;
-        color: white;
-        width: 30px;
-        height: 30px;
-        border-radius: 50%;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        margin-right: 15px;
-        font-weight: bold;
-        flex-shrink: 0;
-      }
-      .step-text {
-        padding-top: 5px;
-      }
-      .cta-button {
-        display: inline-block;
-        background: #667eea;
-        color: white;
-        padding: 12px 30px;
-        border-radius: 5px;
-        text-decoration: none;
-        font-weight: bold;
-        margin: 20px 0;
-      }
-      .footer {
-        background: #ecf0f1;
-        padding: 20px;
-        text-align: center;
-        font-size: 12px;
-        color: #7f8c8d;
-        border-top: 1px solid #bdc3c7;
-      }
-    </style>
-  </head>
-  <body>
-    <div class="container">
-      <div class="header">
-        <h2>🎉 Welcome to SalesPoints!</h2>
-      </div>
+<%= mailer_banner(title: "Welcome to SalesPoints", subtitle: "Your Account Is Ready", badge: "Account Created", theme: :info) %>
+<%= mailer_body_open %>
+  <p style="margin: 0 0 16px 0; font-size: 16px; font-weight: 600; color: #0f172a;">
+    Hi <%= @account.first_name.presence || "there" %>,
+  </p>
 
-      <div class="content">
-        <p>Hi <strong><%= @account.first_name.presence || "there" %></strong>,</p>
+  <p style="margin: 0 0 20px 0; font-size: 14px; line-height: 1.6; color: #334155;">
+    Thank you for signing up with SalesPoints! We're excited to have you join our community of shoppers.
+  </p>
 
-        <p>Thank you for signing up with SalesPoints! We're excited to have you join our community of shoppers.</p>
+  <%= mailer_info_table([["Email", @account.email], ["Status", "Active"]]) %>
 
-        <div class="welcome-box">
-          <p style="margin: 0; color: #7f8c8d; font-size: 12px; text-transform: uppercase;">Your Account Created</p>
-          <p style="margin: 10px 0 0 0; font-size: 14px;">
-            <strong>Email:</strong> <%= @account.email %><br>
-            <strong>Status:</strong> Active
-          </p>
-        </div>
+  <p style="margin: 0 0 12px 0; font-size: 15px; font-weight: 700; color: #0f172a;">What's Next?</p>
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom: 8px;">
+    <tr>
+      <td valign="top" width="28" style="padding: 6px 0; font-size: 13px; font-weight: 700; color: #1d4ed8;">1.</td>
+      <td style="padding: 6px 0; font-size: 13px; color: #334155;">Complete your profile with additional information</td>
+    </tr>
+    <tr>
+      <td valign="top" width="28" style="padding: 6px 0; font-size: 13px; font-weight: 700; color: #1d4ed8;">2.</td>
+      <td style="padding: 6px 0; font-size: 13px; color: #334155;">Browse our amazing products and collections</td>
+    </tr>
+    <tr>
+      <td valign="top" width="28" style="padding: 6px 0; font-size: 13px; font-weight: 700; color: #1d4ed8;">3.</td>
+      <td style="padding: 6px 0; font-size: 13px; color: #334155;">Add items to your cart and check out</td>
+    </tr>
+    <tr>
+      <td valign="top" width="28" style="padding: 6px 0; font-size: 13px; font-weight: 700; color: #1d4ed8;">4.</td>
+      <td style="padding: 6px 0; font-size: 13px; color: #334155;">Complete your first purchase</td>
+    </tr>
+  </table>
 
-        <div class="next-steps">
-          <h3 style="margin: 0 0 15px 0; color: #2c3e50;">What's Next?</h3>
-          <div class="step">
-            <div class="step-number">1</div>
-            <div class="step-text">Complete your profile with additional information</div>
-          </div>
-          <div class="step">
-            <div class="step-number">2</div>
-            <div class="step-text">Browse our amazing products and collections</div>
-          </div>
-          <div class="step">
-            <div class="step-number">3</div>
-            <div class="step-text">Buy items to your choice</div>
-          </div>
-          <div class="step">
-            <div class="step-number">4</div>
-            <div class="step-text">Complete your first purchase</div>
-          </div>
-        </div>
+  <%= mailer_button(url: ENV['FRONTEND_URL'] || 'https://salespoints.in', text: "Start Shopping Now", theme: :info) %>
 
-        <p>
-          <a href="<%= ENV['FRONTEND_URL'] || 'https://salespoints.in' %>" class="cta-button">Start Shopping Now</a>
-        </p>
-
-        <p>If you have any questions or need assistance, our support team is here to help.</p>
-      </div>
-
-      <div class="footer">
-        <p>This is an automated email from SalesPoints.</p>
-        <p>© <%= Time.current.year %> SalesPoints India Pvt. Ltd. All rights reserved.</p>
-      </div>
-    </div>
-  </body>
-</html>
+  <p style="margin: 0; font-size: 13px; line-height: 1.6; color: #475569;">
+    If you have any questions or need assistance, our support team is here to help.
+  </p>
+<%= mailer_body_close %>

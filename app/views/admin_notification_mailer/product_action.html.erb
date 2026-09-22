@@ -1,121 +1,53 @@
 <%
-  ACTION_COLORS_P = {
-    "approved"   => { bg: "#f0fdf4", border: "#bbf7d0", badge_bg: "#16a34a" },
-    "rejected"   => { bg: "#fef2f2", border: "#fecaca", badge_bg: "#dc2626" },
-    "updated"    => { bg: "#fffbeb", border: "#fde68a", badge_bg: "#d97706" },
-    "removed"    => { bg: "#fef2f2", border: "#fecaca", badge_bg: "#dc2626" },
-    "added"      => { bg: "#f0fdf4", border: "#bbf7d0", badge_bg: "#16a34a" },
-  }.freeze
-  palette = ACTION_COLORS_P[@action.to_s.downcase] ||
-            { bg: "#fdf4ff", border: "#e9d5ff", badge_bg: "#9333ea" }
+  action_themes_p = {
+    "approved" => :success,
+    "rejected" => :danger,
+    "updated"  => :warning,
+    "removed"  => :danger,
+    "added"    => :success,
+  }
+  theme = action_themes_p[@action.to_s.downcase] || :purple
 %>
-<%= render 'admin_notification_mailer/email_header' %>
+<%= mailer_banner(title: "Product Action: #{@action.to_s.titleize}", subtitle: "SalesPoints Admin Notification", badge: "Dealer Product", theme: theme) %>
+<%= mailer_body_open %>
+  <p style="margin: 0 0 8px 0;"><%= mailer_badge(@action.to_s.upcase, theme: theme) %></p>
 
-      <!-- Card -->
-      <div class="card" style="padding:0; overflow:hidden;">
+  <p style="margin: 12px 0 20px 0; font-size: 14px; line-height: 1.6; color: #334155;">
+    The product <strong>&ldquo;<%= @product_name %>&rdquo;</strong>
+    submitted by dealer <strong><%= @dealer_name %></strong>
+    has had the action <strong><%= @action.to_s.titleize %></strong> applied to it.
+  </p>
 
-        <!-- Header banner -->
-        <div class="header" style="background: linear-gradient(135deg, #9333ea 0%, #6b21a8 100%);">
-          <div class="header-icon">📦</div>
-          <div class="header-text">
-            <h1>Product Action: <%= @action.to_s.titleize %></h1>
-            <p>SalesPoints Admin Notification</p>
-          </div>
-        </div>
+  <p style="margin: 0 0 8px 0; font-size: 14px; font-weight: 700; color: #0f172a;">Dealer Details</p>
+  <%= mailer_info_table([["Dealer Name", @dealer_name], ["Product", @product_name]]) %>
 
-        <div style="padding:28px 32px;">
+  <p style="margin: 0 0 6px 0; font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px;">Action Performed By</p>
+  <%= mailer_actor_block(name: @actor[:name], email: @actor[:email], theme: theme) %>
 
-          <!-- Badge row -->
-          <div style="margin-bottom:20px; display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
-            <span class="entity-badge" style="background:#fdf4ff; color:#7e22ce;">
-              📦 Dealer Product
-            </span>
-            <span class="action-badge" style="background:<%= palette[:badge_bg] %>; color:#fff;">
-              <%= @action.to_s.upcase %>
-            </span>
-          </div>
+  <%
+    changes_is_diff = @changes.present? && @changes.values.all? { |v| v.is_a?(Hash) && (v.key?(:from) || v.key?("from") || v.key?(:to) || v.key?("to")) }
+  %>
+  <% if changes_is_diff %>
+    <p style="margin: 0 0 8px 0; font-size: 14px; font-weight: 700; color: #0f172a;">What Changed</p>
+    <%= mailer_changes_table(@changes) %>
+  <% elsif @changes.present? %>
+    <p style="margin: 0 0 8px 0; font-size: 14px; font-weight: 700; color: #0f172a;">Details</p>
+    <%= mailer_detail_grid(@changes) %>
+  <% end %>
 
-          <!-- Intro -->
-          <p class="intro">
-            The product <strong>&ldquo;<%= @product_name %>&rdquo;</strong>
-            submitted by dealer <strong><%= @dealer_name %></strong>
-            has had the action <strong><%= @action.to_s.titleize %></strong> applied to it.
-          </p>
+  <% if @details.present? && @details.is_a?(Hash) %>
+    <p style="margin: 16px 0 4px 0; font-size: 14px; font-weight: 700; color: #0f172a;">Additional Details</p>
+    <%= mailer_detail_grid(@details) %>
+  <% elsif @details.present? %>
+    <p style="margin: 16px 0 4px 0; font-size: 14px; font-weight: 700; color: #0f172a;">Additional Notes</p>
+    <p style="margin: 0; font-size: 14px; color: #374151; line-height: 1.6;"><%= @details %></p>
+  <% end %>
 
-          <!-- Dealer info quick-block -->
-          <div class="changes-section" style="margin-bottom:16px;">
-            <div class="section-title">🏪 Dealer Details</div>
-            <div class="details-grid">
-              <div class="detail-row">
-                <div class="detail-key">Dealer Name</div>
-                <div class="detail-val"><%= @dealer_name %></div>
-              </div>
-              <div class="detail-row">
-                <div class="detail-key">Product</div>
-                <div class="detail-val"><strong><%= @product_name %></strong></div>
-              </div>
-            </div>
-          </div>
-
-          <!-- Who did it -->
-          <div class="actor-label">Action Performed By</div>
-          <div class="actor-block" style="background:<%= palette[:bg] %>; border-color:<%= palette[:border] %>;">
-            <div class="actor-avatar" style="background:<%= palette[:badge_bg] %>;">
-              <%= (@actor[:name].presence || @actor[:email] || "?")[0] %>
-            </div>
-            <div class="actor-info">
-              <div class="actor-name"><%= @actor[:name].presence || "Unknown" %></div>
-              <div class="actor-email"><%= @actor[:email].presence || "—" %></div>
-            </div>
-          </div>
-
-          <!-- Before → After changes -->
-          <% if @changes.present? %>
-            <div class="changes-section">
-              <div class="section-title">🔄 What Changed</div>
-              <table class="changes-table">
-                <thead>
-                  <tr>
-                    <th>Field</th>
-                    <th>Before</th>
-                    <th>After</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <% @changes.each do |field, diff| %>
-                    <tr>
-                      <td><%= field.to_s.humanize %></td>
-                      <td><span class="val-old"><%= diff[:from] || diff["from"] || "—" %></span></td>
-                      <td><span class="val-new"><%= diff[:to]   || diff["to"]   || "—" %></span></td>
-                    </tr>
-                  <% end %>
-                </tbody>
-              </table>
-            </div>
-          <% end %>
-
-          <!-- Free-text details -->
-          <% if @details.present? %>
-            <div class="changes-section">
-              <div class="section-title">📝 Additional Notes</div>
-              <p style="font-size:14px; color:#374151; line-height:1.6;"><%= @details %></p>
-            </div>
-          <% end %>
-
-          <!-- Timestamp -->
-          <div class="timestamp-strip">
-            🕐 <span>Action performed at:</span>
-            <%= Time.current.strftime("%d %b %Y, %I:%M %p %Z") %>
-          </div>
-
-          <!-- Footer -->
-          <div class="footer">
-            <p>This is an automated notification from <strong>SalesPoints</strong>.</p>
-            <p style="margin-top:6px;">© <%= Time.current.year %> SalesPoints India Pvt. Ltd. All rights reserved.</p>
-          </div>
-
-        </div>
-      </div>
-    </div>
-  </body>
-</html>
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; margin-top: 20px;">
+    <tr>
+      <td style="padding: 10px 16px; font-size: 12px; color: #64748b;">
+        Action performed at: <%= Time.current.strftime("%d %b %Y, %I:%M %p %Z") %>
+      </td>
+    </tr>
+  </table>
+<%= mailer_body_close %>

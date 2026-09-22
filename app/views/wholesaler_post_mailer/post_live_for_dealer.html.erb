@@ -1,0 +1,19 @@
+<%= mailer_banner(title: "New Wholesaler Post Live", subtitle: "SalesPoints Marketplace", badge: "📢 New Listing", theme: :info) %>
+<%= mailer_body_open %>
+  <p style="margin: 0 0 16px 0; font-size: 16px; font-weight: 600; color: #0f172a;">
+    Hi <%= @dealer&.full_name.presence || "there" %>,
+  </p>
+
+  <p style="margin: 0 0 20px 0; font-size: 14px; line-height: 1.6; color: #334155;">
+    A new wholesaler post is now live on the Wholesaler Feed. Check it out before stock runs out!
+  </p>
+
+  <%= mailer_info_table([
+    ["Post Title", @post.title],
+    ["Price", @post.price.present? ? "₹#{@post.price.to_f.round(2)}" : "N/A"],
+    ["Stock Quantity", @post.stock_quantity],
+    ["Seller", @post.dealer&.dealer_code || "N/A"]
+  ]) %>
+
+  <%= mailer_button(url: "#{ENV['FRONTEND_URL'] || 'https://salespoints.in'}/dealer/wholesaler?post_id=#{@post.id}", text: "View on Wholesaler Feed", theme: :info) %>
+<%= mailer_body_close %>

@@ -32,3 +32,8 @@ production:
     class: CleanupOldBroadcastTrackersJob
     queue: cleanup
     schedule: at 3:30am every day
+
+  wholesaler_post_expiry_reminder:
+    class: WholesalerPostExpiryReminderJob
+    queue: cleanup
+    schedule: every 10 minutes

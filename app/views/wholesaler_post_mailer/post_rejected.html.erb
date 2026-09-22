@@ -1,0 +1,20 @@
+<%= mailer_banner(title: "Wholesaler Post Needs Attention", subtitle: "SalesPoints Marketplace", badge: "✗ Rejected", theme: :danger) %>
+<%= mailer_body_open %>
+  <p style="margin: 0 0 16px 0; font-size: 16px; font-weight: 600; color: #0f172a;">
+    Hi <%= @dealer&.full_name.presence || "there" %>,
+  </p>
+
+  <p style="margin: 0 0 20px 0; font-size: 14px; line-height: 1.6; color: #334155;">
+    Your wholesaler post <strong>&ldquo;<%= @post.title %>&rdquo;</strong> was reviewed by our admin team and could not be approved at this time.
+  </p>
+
+  <% if @post.rejection_reason.present? %>
+    <%= mailer_notice(@post.rejection_reason, theme: :danger, title: "Reason:") %>
+  <% end %>
+
+  <p style="margin: 0 0 20px 0; font-size: 14px; line-height: 1.6; color: #334155;">
+    You can update the post details and resubmit it for review anytime from your Wholesaler Posts screen.
+  </p>
+
+  <%= mailer_button(url: "#{ENV['FRONTEND_URL'] || 'https://salespoints.in'}/dealer/wholesaler", text: "Edit & Resubmit", theme: :danger) %>
+<%= mailer_body_close %>

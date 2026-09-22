@@ -1,76 +1,28 @@
-<%= render 'admin_notification_mailer/email_header' %>
+<%= mailer_banner(title: "#{@entity_type} Created", subtitle: "SalesPoints Admin Notification", badge: "New Record", theme: :info) %>
+<%= mailer_body_open %>
+  <p style="margin: 0 0 8px 0;"><%= mailer_badge(@entity_type, theme: :info) %></p>
 
-      <!-- Card -->
-      <div class="card" style="padding:0; overflow:hidden;">
+  <p style="margin: 12px 0 20px 0; font-size: 14px; line-height: 1.6; color: #334155;">
+    A new <strong><%= @entity_type %></strong> record named
+    <strong>&ldquo;<%= @entity_name %>&rdquo;</strong>
+    has been <strong>created</strong> on the SalesPoints platform.
+  </p>
 
-        <!-- Header banner -->
-        <div class="header">
-          <div class="header-icon">🆕</div>
-          <div class="header-text">
-            <h1><%= @entity_type %> Created</h1>
-            <p>SalesPoints Admin Notification</p>
-          </div>
-        </div>
+  <p style="margin: 0 0 6px 0; font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px;">Created By</p>
+  <%= mailer_actor_block(name: @actor[:name], email: @actor[:email], theme: :info) %>
 
-        <div style="padding:28px 32px;">
+  <% if @details.present? %>
+    <p style="margin: 0 0 8px 0; font-size: 14px; font-weight: 700; color: #0f172a;">Record Details</p>
+    <%= mailer_detail_grid(@details) %>
+  <% end %>
 
-          <!-- Entity badge -->
-          <span class="entity-badge" style="background:#eff6ff; color:#1d4ed8;">
-            📋 <%= @entity_type %>
-          </span>
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; margin-top: 20px;">
+    <tr>
+      <td style="padding: 10px 16px; font-size: 12px; color: #64748b;">
+        Created at: <%= Time.current.strftime("%d %b %Y, %I:%M %p %Z") %>
+      </td>
+    </tr>
+  </table>
 
-          <!-- Intro -->
-          <p class="intro">
-            A new <strong><%= @entity_type %></strong> record named
-            <strong>&ldquo;<%= @entity_name %>&rdquo;</strong>
-            has been <strong>created</strong> on the SalesPoints platform.
-          </p>
-
-          <!-- Who did it -->
-          <div class="actor-label">Created By</div>
-          <div class="actor-block">
-            <div class="actor-avatar">
-              <%= (@actor[:name].presence || @actor[:email] || "?")[0] %>
-            </div>
-            <div class="actor-info">
-              <div class="actor-name"><%= @actor[:name].presence || "Unknown" %></div>
-              <div class="actor-email"><%= @actor[:email].presence || "—" %></div>
-            </div>
-          </div>
-
-          <!-- Initial field values (if provided) -->
-          <% if @details.present? %>
-            <div class="changes-section">
-              <div class="section-title">📋 Record Details</div>
-              <div class="details-grid">
-                <% @details.each do |field, value| %>
-                  <div class="detail-row">
-                    <div class="detail-key"><%= field.to_s.humanize %></div>
-                    <div class="detail-val"><%= value.presence || "—" %></div>
-                  </div>
-                <% end %>
-              </div>
-            </div>
-          <% end %>
-
-          <!-- Timestamp -->
-          <div class="timestamp-strip">
-            🕐 <span>Created at:</span>
-            <%= Time.current.strftime("%d %b %Y, %I:%M %p %Z") %>
-          </div>
-
-          <div class="note-box">
-            ✅ This record is now live. Log in to the admin dashboard to review it.
-          </div>
-
-          <!-- Footer -->
-          <div class="footer">
-            <p>This is an automated notification from <strong>SalesPoints</strong>.</p>
-            <p style="margin-top:6px;">© <%= Time.current.year %> SalesPoints India Pvt. Ltd. All rights reserved.</p>
-          </div>
-
-        </div>
-      </div>
-    </div>
-  </body>
-</html>
+  <%= mailer_notice("This record is now live. Log in to the admin dashboard to review it.", theme: :success) %>
+<%= mailer_body_close %>

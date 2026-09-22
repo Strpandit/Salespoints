@@ -120,6 +120,7 @@ module Api
       return render json: { error: "Invalid dealer product selection" }, status: :unprocessable_entity if invalid_dealer_product?(post.dealer_product_id)
 
       if post.save
+        WholesalerPostNotificationService.notify_created!(post)
         render json: { data: post_payload(post), message: "Post submitted for admin review" }, status: :created
       else
         render json: { error: post.errors.full_messages }, status: :unprocessable_entity
@@ -204,6 +205,7 @@ module Api
       )
 
       notify_dealers_on_approval(post)
+      WholesalerPostNotificationService.notify_approved!(post)
 
       render json: { message: "Post approved", data: post_payload(post) }
     end
@@ -222,6 +224,8 @@ module Api
         reviewed_at: Time.current,
         reviewed_by_admin: current_admin
       )
+
+      WholesalerPostNotificationService.notify_rejected!(post)
 
       render json: { message: "Post rejected", data: post_payload(post) }
     end
@@ -507,42 +511,7 @@ module Api
     end
 
     def notify_dealers_on_approval(post)
-      target_pincodes = Array(post.pincodes).map(&:to_s).reject(&:blank?)
-      return if target_pincodes.empty?
-
-      dealers = Dealer.where(status: "active").where(deleted_at: nil).where.not(id: post.dealer_id)
-      dealers = dealers.where(pincode: target_pincodes)
-      
-      seller_label = post.dealer&.dealer_profile&.business_name.presence || post.dealer&.dealer_code.presence || "A Wholesaler"
-      price_text = post.price.present? ? "at ₹#{post.price.to_f.round(2)}" : ""
-      title = "📢 New Wholesaler Post Live!"
-      message = "New Wholesaler Post is Live now: #{post.title} #{price_text}. Check it out on your Wholesaler Feed!"
-
-      dealers.find_each do |target_dealer|
-        NotificationService.deliver(
-          recipient: target_dealer,
-          actor: post.dealer,
-          notifiable: post,
-          kind: "new_wholesaler_post",
-          title: title,
-          message: message,
-          visible_in_app: true,
-          delivery_channels: { push: true, in_app: true, email: false, whatsapp: false, sms: false },
-          payload: {
-            post_id: post.id,
-            wholesaler_post_id: post.id,
-            title: post.title,
-            price: post.price.to_f,
-            seller_dealer_id: post.dealer_id,
-            seller_code: post.dealer&.dealer_code,
-            path: "/dealer/wholesaler?post_id=#{post.id}",
-            url: "/dealer/wholesaler?post_id=#{post.id}",
-            link: "/dealer/wholesaler?post_id=#{post.id}",
-            route: "DealerWholesalerFeed",
-            params: { post_id: post.id }
-          }
-        )
-      end
+      WholesalerPostNotificationService.notify_matching_dealers_live!(post)
     rescue StandardError => e
       Rails.logger.error("[WholesalerPostsController] failed to broadcast dealer notification: #{e.message}")
     end

@@ -1,18 +1,15 @@
-<%= render layout: "deletion_request_mailer/layout",
-locals: { title: "❌ Account Deletion Rejected" } do %>
+<%= mailer_banner(title: "Account Deletion Rejected", subtitle: "SalesPoints Account Management", badge: "✗ Rejected", theme: :warning) %>
+<%= mailer_body_open %>
+  <p style="margin: 0 0 20px 0; font-size: 14px; line-height: 1.6; color: #334155;">
+    Your account deletion request has been reviewed.
+  </p>
 
-<p>Your account deletion request has been reviewed.</p>
+  <%= mailer_info_table([
+    ["Status", "REJECTED"],
+    ["Reason", @reason]
+  ]) %>
 
-<div class="info-block">
-
-  <div class="label">Status</div>
-  <div class="value">REJECTED</div>
-
-  <div class="label" style="margin-top:15px;">Reason</div>
-  <div class="value"><%= @reason %></div>
-
-</div>
-
-<p>Your account remains active.</p>
-
-<% end %>
+  <p style="margin: 0; font-size: 14px; line-height: 1.6; color: #334155;">
+    Your account remains active.
+  </p>
+<%= mailer_body_close %>

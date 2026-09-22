@@ -1,88 +1,30 @@
-<!DOCTYPE html>
-<html>
-  <head>
-    <meta charset="UTF-8">
-    <style>
-      body {
-        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        margin: 0;
-        padding: 20px;
-      }
-      .container {
-        max-width: 600px;
-        margin: 0 auto;
-        background: white;
-        border-radius: 10px;
-        overflow: hidden;
-        box-shadow: 0 10px 30px rgba(0,0,0,0.2);
-      }
-      .header {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        color: white;
-        padding: 30px;
-        text-align: center;
-      }
-      .header h2 {
-        margin: 0;
-        font-size: 24px;
-      }
-      .content {
-        padding: 30px;
-      }
-      .info-box {
-        background: #f0f0f0;
-        border-radius: 5px;
-        padding: 20px;
-        margin: 20px 0;
-        border-left: 4px solid #667eea;
-      }
-      .footer {
-        background: #ecf0f1;
-        padding: 20px;
-        text-align: center;
-        font-size: 12px;
-        color: #7f8c8d;
-        border-top: 1px solid #bdc3c7;
-      }
-    </style>
-  </head>
-  <body>
-    <div class="container">
-      <div class="header">
-        <h2>📨 New Contact Form Submission</h2>
-      </div>
+<%= mailer_banner(title: "New Contact Form Submission", subtitle: "SalesPoints Support System", badge: "Action Required", theme: :info) %>
+<%= mailer_body_open %>
+  <p style="margin: 0 0 16px 0; font-size: 16px; font-weight: 600; color: #0f172a;">
+    Hello <%= @admin.first_name %>,
+  </p>
 
-      <div class="content">
-        <p>Hello <strong><%= @admin.first_name %></strong>,</p>
+  <p style="margin: 0 0 20px 0; font-size: 14px; line-height: 1.6; color: #334155;">
+    A new contact form submission has been received that requires your attention.
+  </p>
 
-        <p>A new contact form submission has been received that requires your attention.</p>
+  <p style="margin: 0 0 8px 0; font-size: 13px; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px;">Submitter Information</p>
+  <%= mailer_info_table([
+    ["Name", @submission.name],
+    ["Email", @submission.email],
+    *(@submission.phone.present? ? [["Phone", @submission.phone]] : []),
+    ["Subject", @submission.subject],
+    ["Received", @submission.created_at.strftime("%B %d, %Y at %I:%M %p")]
+  ]) %>
 
-        <div class="info-box">
-          <p style="margin: 0 0 10px 0; color: #7f8c8d; font-size: 12px; text-transform: uppercase;">Submitter Information</p>
-          <p style="margin: 5px 0;"><strong>Name:</strong> <%= @submission.name %></p>
-          <p style="margin: 5px 0;"><strong>Email:</strong> <%= @submission.email %></p>
-          <% if @submission.phone.present? %>
-            <p style="margin: 5px 0;"><strong>Phone:</strong> <%= @submission.phone %></p>
-          <% end %>
-          <p style="margin: 5px 0;"><strong>Subject:</strong> <%= @submission.subject %></p>
-          <p style="margin: 5px 0;"><strong>Received:</strong> <%= @submission.created_at.strftime("%B %d, %Y at %I:%M %p") %></p>
-        </div>
+  <p style="margin: 0 0 8px 0; font-size: 13px; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px;">Message</p>
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color: #f8fafc; border-left: 3px solid #1d4ed8; border-radius: 6px; margin: 0 0 20px 0;">
+    <tr><td style="padding: 14px 18px; font-size: 14px; color: #334155; line-height: 1.6;"><%= simple_format(@submission.message) %></td></tr>
+  </table>
 
-        <p><strong>Message:</strong></p>
-        <div style="background: #f9f9f9; padding: 15px; border-radius: 5px; border-left: 3px solid #667eea;">
-          <%= simple_format(@submission.message) %>
-        </div>
-
-        <p>Please log into the admin panel to review and respond to this submission.</p>
-
-        <p>Thank you!<br>
-        <strong>SalesPoints Support System</strong></p>
-      </div>
-
-      <div class="footer">
-        <p style="margin: 0;">© <%= Date.today.year %> SalesPoints India Pvt. Ltd. All rights reserved.</p>
-      </div>
-    </div>
-  </body>
-</html>
+  <p style="margin: 0; font-size: 13px; line-height: 1.6; color: #475569;">
+    Please log into the admin panel to review and respond to this submission.<br><br>
+    Thank you!<br>
+    <strong style="color: #0f172a;">SalesPoints Support System</strong>
+  </p>
+<%= mailer_body_close %>

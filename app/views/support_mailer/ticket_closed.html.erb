@@ -1,98 +1,26 @@
-<!DOCTYPE html>
-<html>
-  <head>
-    <meta charset="UTF-8">
-    <style>
-      body {
-        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        margin: 0;
-        padding: 20px;
-      }
-      .container {
-        max-width: 600px;
-        margin: 0 auto;
-        background: white;
-        border-radius: 10px;
-        overflow: hidden;
-        box-shadow: 0 10px 30px rgba(0,0,0,0.2);
-      }
-      .header {
-        background: linear-gradient(135deg, #95989a 0%, #464646 100%);
-        color: white;
-        padding: 30px;
-        text-align: center;
-      }
-      .header h2 {
-        margin: 0;
-        font-size: 24px;
-      }
-      .content {
-        padding: 30px;
-      }
-      .ticket-info {
-        background: #f0f0f0;
-        border-radius: 5px;
-        padding: 20px;
-        margin: 20px 0;
-        border-left: 4px solid #95989a;
-      }
-      .info-row {
-        display: flex;
-        justify-content: space-between;
-        margin: 10px 0;
-        font-size: 14px;
-      }
-      .label {
-        font-weight: bold;
-        color: #7f8c8d;
-      }
-      .footer {
-        background: #ecf0f1;
-        padding: 20px;
-        text-align: center;
-        font-size: 12px;
-        color: #7f8c8d;
-        border-top: 1px solid #bdc3c7;
-      }
-    </style>
-  </head>
-  <body>
-    <div class="container">
-      <div class="header">
-        <h2>🔒 Support Ticket Closed</h2>
-      </div>
+<%= mailer_banner(title: "Support Ticket Closed", subtitle: "SalesPoints Support Team", badge: "Closed", theme: :neutral) %>
+<%= mailer_body_open %>
+  <p style="margin: 0 0 16px 0; font-size: 16px; font-weight: 600; color: #0f172a;">
+    Hi <%= @requester_name %>,
+  </p>
 
-      <div class="content">
-        <p>Hi <strong><%= @requester_name %></strong>,</p>
+  <p style="margin: 0 0 20px 0; font-size: 14px; line-height: 1.6; color: #334155;">
+    Your support ticket has been closed. If you need to reopen it or have any follow-up questions, please don't hesitate to contact us.
+  </p>
 
-        <p>Your support ticket has been closed. If you need to reopen it or have any follow-up questions, please don't hesitate to contact us.</p>
+  <%= mailer_info_table([
+    ["Ticket Number", @ticket.ticket_number],
+    ["Subject", @ticket.subject],
+    ["Closed At", @ticket.updated_at.strftime("%B %d, %Y at %I:%M %p")]
+  ]) %>
 
-        <div class="ticket-info">
-          <div class="info-row">
-            <span class="label">Ticket Number:</span>
-            <span><strong><%= @ticket.ticket_number %></strong></span>
-          </div>
-          <div class="info-row">
-            <span class="label">Subject:</span>
-            <span><%= @ticket.subject %></span>
-          </div>
-          <div class="info-row">
-            <span class="label">Closed At:</span>
-            <span><%= @ticket.updated_at.strftime("%B %d, %Y at %I:%M %p") %></span>
-          </div>
-        </div>
+  <p style="margin: 0 0 8px 0; font-size: 15px; font-weight: 700; color: #0f172a;">How can we improve?</p>
+  <p style="margin: 0 0 20px 0; font-size: 14px; line-height: 1.6; color: #334155;">
+    We'd love to hear your feedback about your support experience. If you have a few minutes, please reply to this email with any suggestions or comments.
+  </p>
 
-        <h3>How can we improve?</h3>
-        <p>We'd love to hear your feedback about your support experience. If you have a few minutes, please reply to this email with any suggestions or comments.</p>
-
-        <p>Thank you for choosing SalesPoints!<br>
-        <strong>SalesPoints Support Team</strong></p>
-      </div>
-
-      <div class="footer">
-        <p style="margin: 0;">© <%= Date.today.year %> SalesPoints India Pvt. Ltd. All rights reserved.</p>
-      </div>
-    </div>
-  </body>
-</html>
+  <p style="margin: 0; font-size: 13px; line-height: 1.6; color: #475569;">
+    Thank you for choosing SalesPoints!<br>
+    <strong style="color: #0f172a;">SalesPoints Support Team</strong>
+  </p>
+<%= mailer_body_close %>

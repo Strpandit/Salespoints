@@ -1,19 +1,25 @@
-<h2>SalesPoints - Payout Request Received</h2>
-<p>Dear <%= @dealer.full_name.presence || @dealer.email %>,</p>
+<%= mailer_banner(title: "Payout Request Received", subtitle: "Your payout request is currently under review.", badge: "SalesPoints Payout Desk", theme: :info) %>
+<%= mailer_body_open %>
+  <p style="margin: 0 0 18px 0; font-size: 15px; color: #334155;">Dear <%= @dealer.full_name.presence || @dealer.email %>,</p>
 
-<p>Your payout request <strong><%= @payout.request_number %></strong> has been received and is currently under review by SalesPoints Administration.</p>
+  <p style="margin: 0 0 18px 0; font-size: 14px; line-height: 1.6; color: #334155;">
+    Your payout request <strong><%= @payout.request_number %></strong> has been received and is currently under review by SalesPoints Administration.
+  </p>
 
-<h3>Request Summary</h3>
-<ul>
-  <li><strong>Request Number:</strong> <%= @payout.request_number %></li>
-  <li><strong>Requested Amount:</strong> ₹<%= sprintf("%.2f", @payout.amount) %></li>
-  <li><strong>Bank Name:</strong> <%= @payout.bank_name %></li>
-  <li><strong>Account Number:</strong> XXXXXX<%= @payout.bank_account_number.to_s.last(4) %></li>
-  <li><strong>IFSC Code:</strong> <%= @payout.ifsc_code %></li>
-  <li><strong>Status:</strong> <%= @payout.status.to_s.humanize.titleize %></li>
-  <li><strong>Date:</strong> <%= @payout.created_at.strftime("%d %b %Y, %I:%M %p") %></li>
-</ul>
+  <p style="margin: 0 0 8px 0; font-size: 14px; font-weight: 700; color: #0f172a;">Request Summary</p>
+  <%= mailer_info_table([
+    ["Request Number", @payout.request_number],
+    ["Requested Amount", "₹#{sprintf("%.2f", @payout.amount)}"],
+    ["Bank Name", @payout.bank_name],
+    ["Account Number", "XXXXXX#{@payout.bank_account_number.to_s.last(4)}"],
+    ["IFSC Code", @payout.ifsc_code],
+    ["Status", @payout.status.to_s.humanize.titleize],
+    ["Date", @payout.created_at.strftime("%d %b %Y, %I:%M %p")]
+  ]) %>
 
-<p>Our finance team will manually verify the order details, commission breakdown, and bank account details before initiating disbursement.</p>
-
-<p>Best Regards,<br><strong>SalesPoints India Pvt. Ltd.</strong></p>
+  <p style="margin: 0; font-size: 13px; line-height: 1.6; color: #475569;">
+    Our finance team will manually verify the order details, commission breakdown, and bank account details before initiating disbursement.<br><br>
+    Best Regards,<br>
+    <strong style="color: #0f172a;">SalesPoints India Pvt. Ltd.</strong>
+  </p>
+<%= mailer_body_close %>

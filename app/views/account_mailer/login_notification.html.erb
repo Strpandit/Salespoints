@@ -1,122 +1,29 @@
-<!DOCTYPE html>
-<html>
-  <head>
-    <meta charset="UTF-8">
-    <style>
-      body {
-        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-        background: #f5f5f5;
-        margin: 0;
-        padding: 20px;
-      }
-      .container {
-        max-width: 600px;
-        margin: 0 auto;
-        background: white;
-        border-radius: 8px;
-        overflow: hidden;
-        box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-      }
-      .header {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        color: white;
-        padding: 20px;
-        text-align: center;
-      }
-      .header h2 {
-        margin: 0;
-        font-size: 20px;
-      }
-      .content {
-        padding: 30px;
-      }
-      .info-block {
-        background: #f0f0f0;
-        padding: 15px;
-        border-radius: 5px;
-        margin: 20px 0;
-        border-left: 4px solid #667eea;
-      }
-      .label {
-        color: #7f8c8d;
-        font-size: 12px;
-        text-transform: uppercase;
-        letter-spacing: 1px;
-      }
-      .value {
-        color: #2c3e50;
-        font-size: 16px;
-        font-weight: bold;
-        margin: 5px 0 0 0;
-      }
-      .security-tips {
-        background: #fffbea;
-        border-left: 4px solid #f39c12;
-        padding: 15px;
-        border-radius: 5px;
-        margin: 20px 0;
-      }
-      .security-tips h4 {
-        margin: 0 0 10px 0;
-        color: #f39c12;
-      }
-      .tip {
-        margin: 8px 0;
-        color: #2c3e50;
-        font-size: 14px;
-      }
-      .footer {
-        background: #ecf0f1;
-        padding: 20px;
-        text-align: center;
-        font-size: 12px;
-        color: #7f8c8d;
-        border-top: 1px solid #bdc3c7;
-      }
-      .unrecognized-link {
-        color: #e74c3c;
-        font-weight: bold;
-        text-decoration: none;
-      }
-    </style>
-  </head>
-  <body>
-    <div class="container">
-      <div class="header">
-        <h2>🔐 Login Notification</h2>
-      </div>
+<%= mailer_banner(title: "Login Notification", subtitle: "SalesPoints Account Security", badge: "Security Alert", theme: :info) %>
+<%= mailer_body_open %>
+  <p style="margin: 0 0 16px 0; font-size: 16px; font-weight: 600; color: #0f172a;">
+    Hi <%= @account.first_name.presence || "there" %>,
+  </p>
 
-      <div class="content">
-        <p>Hi <strong><%= @account.first_name.presence || "there" %></strong>,</p>
+  <p style="margin: 0 0 20px 0; font-size: 14px; line-height: 1.6; color: #334155;">
+    Your SalesPoints account was successfully logged in. Here are the details:
+  </p>
 
-        <p>Your SalesPoints account was successfully logged in. Here are the details:</p>
+  <%= mailer_info_table([
+    ["Login Time", @login_time],
+    ["Account Email", @account.email]
+  ]) %>
 
-        <div class="info-block">
-          <div class="label">Login Time</div>
-          <div class="value"><%= @login_time %></div>
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color: #fffbeb; border-left: 4px solid #f59e0b; border-radius: 6px; margin: 20px 0;">
+    <tr>
+      <td style="padding: 14px 18px; font-size: 13px; color: #92400e; line-height: 1.7;">
+        <strong>Security Tips</strong><br>
+        &#10003; Keep your password private and never share it with anyone<br>
+        &#10003; Always use a strong, unique password<br>
+        &#10003; Log out when using shared devices<br>
+        &#10003; Be cautious of suspicious links or emails asking for your credentials
+      </td>
+    </tr>
+  </table>
 
-          <div class="label" style="margin-top: 15px;">Account Email</div>
-          <div class="value"><%= @account.email %></div>
-        </div>
-
-        <div class="security-tips">
-          <h4>🛡️ Security Tips</h4>
-          <div class="tip">✓ Keep your password private and never share it with anyone</div>
-          <div class="tip">✓ Always use a strong, unique password</div>
-          <div class="tip">✓ Log out when using shared devices</div>
-          <div class="tip">✓ Be cautious of suspicious links or emails asking for your credentials</div>
-        </div>
-
-        <p style="color: #e74c3c; margin-top: 20px;">
-          <strong>⚠️ If you didn't authorize this login,</strong> please 
-          <a href="<%= ENV['FRONTEND_URL'] || 'https://salespoints.in/reset-password' %>" class="unrecognized-link">reset your password immediately</a>
-        </p>
-      </div>
-
-      <div class="footer">
-        <p>This is an automated security notification from SalesPoints.</p>
-        <p>© <%= Time.current.year %> SalesPoints India Pvt. Ltd. All rights reserved.</p>
-      </div>
-    </div>
-  </body>
-</html>
+  <%= mailer_notice("If you didn't authorize this login, please <a href=\"#{ENV['FRONTEND_URL'] || 'https://salespoints.in/reset-password'}\" style=\"color: #991b1b; font-weight: 700;\">reset your password immediately</a>.".html_safe, theme: :danger, title: "Didn't recognize this login?") %>
+<%= mailer_body_close %>

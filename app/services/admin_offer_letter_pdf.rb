@@ -120,20 +120,20 @@ class AdminOfferLetterPdf
 
       pdf.move_down 5
 
-      pdf.text "SalesPoints India Pvt. Ltd.",
+      pdf.text "SALESPOINTS INDIA PRIVATE LIMITED",
               size: 11,
               style: :bold,
               color: "0B5ED7"
 
-      pdf.text "Address: Your Complete Company Address Here",
+      pdf.text "Address: Prop No-49, Kh No. 70, Road Sadatpur, Karawal  Nagar, New Delhi - 110094",
               size: 9,
               color: "555555"
 
-      pdf.text "GST No.: 09ABCDE1234F1Z5",
+      pdf.text "GST No.: 07ABTCS6593H1ZH",
               size: 9,
               color: "555555"
 
-      pdf.text "TIN No.: 12345678901",
+      pdf.text "CIN No.: U46524DC2026PTC471107",
               size: 9,
               color: "555555"
 
@@ -163,7 +163,7 @@ class AdminOfferLetterPdf
   def formatted_salary(value)
     return "0" if value.blank?
 
-    value.to_s.reverse.scan(/.{1,3}/).join(",").reverse
+    value.to_s
   end
 
   def formatted_date(date)

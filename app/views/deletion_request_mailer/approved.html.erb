@@ -1,21 +1,16 @@
-<%= render layout: "deletion_request_mailer/layout",
-locals: { title: "✅ Account Deletion Approved" } do %>
+<%= mailer_banner(title: "Account Deletion Approved", subtitle: "SalesPoints Account Management", badge: "✓ Approved", theme: :success) %>
+<%= mailer_body_open %>
+  <p style="margin: 0 0 20px 0; font-size: 14px; line-height: 1.6; color: #334155;">
+    Your account deletion request has been approved.
+  </p>
 
-<p>Your account deletion request has been approved.</p>
+  <%= mailer_info_table([
+    ["Account", @account.full_name],
+    ["Approved By", @approved_by.full_name],
+    ["Status", "APPROVED"]
+  ]) %>
 
-<div class="info-block">
-
-  <div class="label">Account</div>
-  <div class="value"><%= @account.full_name %></div>
-
-  <div class="label" style="margin-top:15px;">Approved By</div>
-  <div class="value"><%= @approved_by.full_name %></div>
-
-  <div class="label" style="margin-top:15px;">Status</div>
-  <div class="value">APPROVED</div>
-
-</div>
-
-<p>Your account has been successfully removed from SalesPoints.</p>
-
-<% end %>
+  <p style="margin: 0; font-size: 14px; line-height: 1.6; color: #334155;">
+    Your account has been successfully removed from SalesPoints.
+  </p>
+<%= mailer_body_close %>
