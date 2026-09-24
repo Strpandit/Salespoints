@@ -68,7 +68,7 @@ module Api
 
         orders_list = []
         retail_orders.each do |o|
-          fin = service.calculate_order_financials(o) rescue { net_payout_amount: o.total_amount }
+          fin = service.calculate_order_financials(o) rescue { net_payout_amount: o.total_amount, commission_fee: (o.total_amount * 0.025).round(2), commission_rate: 0.025, gross_amount: o.total_amount }
           orders_list << {
             id: o.id,
             reference_number: o.order_number,
@@ -77,6 +77,12 @@ module Api
             payment_status: o.payment_status,
             status: o.status,
             total_amount: o.total_amount.to_f,
+            gross_amount: (fin[:gross_amount] || o.total_amount).to_f,
+            commission_fee: fin[:commission_fee].to_f,
+            commission_rate: (fin[:commission_rate].to_f * 100).round(2),
+            base_commission_fee: fin[:base_commission_fee].to_f,
+            commission_gst: fin[:commission_gst].to_f,
+            is_accessories: fin[:is_accessories] || false,
             net_payout_amount: fin[:net_payout_amount].to_f,
             buyer_name: o.buyer&.full_name || "Buyer",
             created_at: o.created_at&.iso8601,
@@ -85,7 +91,7 @@ module Api
         end
 
         b2b_orders.each do |o|
-          fin = service.calculate_order_financials(o) rescue { net_payout_amount: o.total_amount }
+          fin = service.calculate_order_financials(o) rescue { net_payout_amount: o.total_amount, commission_fee: (o.total_amount * 0.015).round(2), commission_rate: 0.015, gross_amount: o.total_amount }
           otype = o.source_type == "WholesalerPost" ? "wholesale" : "b2b"
           orders_list << {
             id: o.id,
@@ -95,6 +101,12 @@ module Api
             payment_status: o.payment_status,
             status: o.status,
             total_amount: o.total_amount.to_f,
+            gross_amount: (fin[:gross_amount] || o.total_amount).to_f,
+            commission_fee: fin[:commission_fee].to_f,
+            commission_rate: (fin[:commission_rate].to_f * 100).round(2),
+            base_commission_fee: fin[:base_commission_fee].to_f,
+            commission_gst: fin[:commission_gst].to_f,
+            is_accessories: fin[:is_accessories] || false,
             net_payout_amount: fin[:net_payout_amount].to_f,
             buyer_name: o.buyer_dealer&.full_name || "Dealer",
             created_at: o.created_at&.iso8601,

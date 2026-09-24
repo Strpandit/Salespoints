@@ -151,10 +151,22 @@ module Api
         dealers = dealers.where("created_at <= ?", to) if to
       end
 
+      if params[:bank_verification_status].present? && params[:bank_verification_status] != "all"
+        if params[:bank_verification_status] == "unverified"
+          dealers = dealers.left_outer_joins(:dealer_profile).where("dealer_profiles.bank_verification_status IS NULL OR dealer_profiles.bank_verification_status IN ('unverified', 'failed')")
+        else
+          dealers = dealers.left_outer_joins(:dealer_profile).where(dealer_profiles: { bank_verification_status: params[:bank_verification_status] })
+        end
+      end
+
+      if params[:has_bank_details] == "true"
+        dealers = dealers.left_outer_joins(:dealer_profile).where("dealer_profiles.bank_account_number IS NOT NULL AND dealer_profiles.bank_account_number != ''")
+      end
+
       if params[:search].present?
         q = "%#{params[:search].strip}%"
         dealers = dealers.left_outer_joins(:dealer_profile).where(
-          "dealers.first_name ILIKE :q OR dealers.last_name ILIKE :q OR dealers.email ILIKE :q OR dealers.phone ILIKE :q OR dealers.dealer_code ILIKE :q OR dealer_profiles.business_name ILIKE :q OR dealer_profiles.gst_number ILIKE :q",
+          "dealers.first_name ILIKE :q OR dealers.last_name ILIKE :q OR dealers.email ILIKE :q OR dealers.phone ILIKE :q OR dealers.dealer_code ILIKE :q OR dealer_profiles.business_name ILIKE :q OR dealer_profiles.gst_number ILIKE :q OR dealer_profiles.bank_account_number ILIKE :q OR dealer_profiles.ifsc_code ILIKE :q",
           q: q
         ).distinct
       end
@@ -353,7 +365,7 @@ module Api
           end
         end
 
-        notify_admins_entity_updated(@dealer)
+        notify_admins_entity_updated(@dealer, combined_diff)
         render json: serialize_resource(@dealer, DealerSerializer, base_url: request.base_url).merge(message: "Dealer updated successfully"), status: :ok
       else
         render json: {
@@ -368,7 +380,8 @@ module Api
         account_number: params[:bank_account_number],
         confirm_account_number: params[:confirm_bank_account_number],
         account_holder_name: params[:account_holder_name],
-        ifsc_code: params[:ifsc_code]
+        ifsc_code: params[:ifsc_code],
+        is_admin: (current_user_type == "AdminUser")
       )
 
       if result.status == "pending"
@@ -833,8 +846,8 @@ module Api
       end
     end
 
-    def notify_admins_entity_updated(dealer)
-      changes = dealer.saved_changes.except("updated_at", "created_at", "password_digest").transform_values { |v| { from: v[0], to: v[1] } }
+    def notify_admins_entity_updated(dealer, custom_changes = nil)
+      changes = custom_changes || dealer.saved_changes.except("updated_at", "created_at", "password_digest").transform_values { |v| { from: v[0], to: v[1] } }
       get_admin_emails.each do |email|
         AdminNotificationMailer.entity_updated(email, "Dealer", dealer.full_name, current_admin, changes).deliver_later
       end

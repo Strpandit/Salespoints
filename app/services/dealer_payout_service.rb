@@ -9,7 +9,7 @@ class DealerPayoutService
     wholesaler: BigDecimal("0.015")
   }.freeze
 
-  def initialize(dealer:)
+  def initialize(dealer: nil)
     @dealer = dealer
   end
 
@@ -189,6 +189,9 @@ class DealerPayoutService
             gross_amount: breakdown[:gross_amount].to_f,
             commission_rate: (breakdown[:commission_rate] * 100).to_f,
             commission_fee: breakdown[:commission_fee].to_f,
+            base_commission_fee: breakdown[:base_commission_fee].to_f,
+            commission_gst: breakdown[:commission_gst].to_f,
+            is_accessories: breakdown[:is_accessories],
             net_payout_amount: breakdown[:net_payout_amount].to_f,
             created_at: order.created_at&.iso8601,
             delivered_at: order.delivered_at&.iso8601
@@ -402,16 +405,22 @@ class DealerPayoutService
 
   def calculate_order_financials(order)
     gross = gross_amount_for(order)
-    rate = commission_rate_for(order)
+    rate = commission_rate_for(order, gross)
 
-    commission_fee = (gross * rate).round(2)
-    net_payout = [gross - commission_fee, 0.to_d].max.round(2)
+    is_accessories = order.is_a?(B2bOrder) && b2b_accessories_order?(order)
+    base_commission_fee = (gross * rate).round(2)
+    commission_gst = is_accessories ? (base_commission_fee * BigDecimal("0.18")).round(2) : 0.to_d
+    total_commission = base_commission_fee + commission_gst
+    net_payout = [gross - total_commission, 0.to_d].max.round(2)
 
     {
       gross_amount: gross,
       commission_rate: rate,
-      commission_fee: commission_fee,
-      net_payout_amount: net_payout
+      commission_fee: total_commission,
+      base_commission_fee: base_commission_fee,
+      commission_gst: commission_gst,
+      net_payout_amount: net_payout,
+      is_accessories: is_accessories
     }
   end
 
@@ -652,6 +661,9 @@ class DealerPayoutService
       gross_amount: breakdown[:gross_amount].to_f,
       commission_rate: (breakdown[:commission_rate] * 100).to_f,
       commission_fee: breakdown[:commission_fee].to_f,
+      base_commission_fee: breakdown[:base_commission_fee].to_f,
+      commission_gst: breakdown[:commission_gst].to_f,
+      is_accessories: breakdown[:is_accessories],
       net_payout_amount: breakdown[:net_payout_amount].to_f,
       status: requestable.status,
       payment_status: requestable.payment_status,
@@ -708,16 +720,56 @@ class DealerPayoutService
     end
   end
 
-  def commission_rate_for(requestable)
-    flow = requestable_flow(requestable)
-    case flow
-    when "wholesaler", "offermart"
-      COMMISSION_RATES[:wholesaler]
-    when "b2b"
-      COMMISSION_RATES[:b2b]
+  def commission_rate_for(requestable, gross_val = nil)
+    case requestable
+    when Order
+      COMMISSION_RATES[:b2c]
+    when B2bOrder
+      if b2b_accessories_order?(requestable)
+        gross = gross_val || gross_amount_for(requestable)
+        if gross < 500
+          BigDecimal("0.10")
+        elsif gross <= 2000
+          BigDecimal("0.07")
+        elsif gross <= 7000
+          BigDecimal("0.05")
+        else
+          BigDecimal("0.03")
+        end
+      else
+        flow = requestable_flow(requestable)
+        flow == "wholesaler" ? COMMISSION_RATES[:wholesaler] : COMMISSION_RATES[:b2b]
+      end
     else
       COMMISSION_RATES[:b2c]
     end
+  end
+
+  def b2b_accessories_order?(requestable)
+    return false unless requestable.is_a?(B2bOrder)
+
+    if requestable.b2b_order_items.loaded?
+      requestable.b2b_order_items.any? { |item| item_is_accessories?(item) }
+    else
+      requestable.b2b_order_items.includes(
+        product_variant: { product: :category },
+        dealer_product: { product: :category },
+        wholesaler_post: { product: :category }
+      ).any? { |item| item_is_accessories?(item) }
+    end
+  end
+
+  def item_is_accessories?(item)
+    cat = item.product_variant&.product&.category ||
+          item.dealer_product&.product&.category ||
+          item.wholesaler_post&.product&.category ||
+          item.wholesaler_post&.dealer_product&.product&.category
+
+    return false unless cat
+
+    cat_name = cat.name.to_s.downcase
+    cat_slug = cat.slug.to_s.downcase
+    cat_name.include?("accessori") || cat_slug.include?("accessori")
   end
 
   def replacement_request_open?(requestable)

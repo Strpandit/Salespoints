@@ -466,7 +466,14 @@ module Api
         end
       end
 
-      b2b_orders.each do |o|
+      payout_service = DealerPayoutService.new
+      b2b_orders.includes(
+        b2b_order_items: [
+          { product_variant: { product: :category } },
+          { dealer_product: { product: :category } },
+          { wholesaler_post: { product: :category } }
+        ]
+      ).each do |o|
         sid = o.seller_dealer_id
         next if sid.blank?
         combined[sid] ||= {
@@ -478,9 +485,9 @@ module Api
           cod_orders: 0, cod_revenue: 0.0, cod_commission: 0.0
         }
         amt = o.total_amount.to_f
+        fin = payout_service.calculate_order_financials(o) rescue nil
+        comm = fin ? fin[:commission_fee].to_f : (amt * 0.015).round(2)
         is_wholesaler = (o.respond_to?(:wholesaler_post_id) && o.wholesaler_post_id.present?) || (o.is_direct_buy? && o.source_type == "WholesalerPost")
-        rate = 0.015 # 1.5% for both B2B and Wholesaler
-        comm = (amt * rate).round(2)
 
         combined[sid][:orders] += 1
         combined[sid][:revenue] += amt

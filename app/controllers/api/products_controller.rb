@@ -117,11 +117,27 @@ module Api
     variant_purge_map = extract_variant_purge_blob_ids
     color_purge_map = extract_color_purge_blob_ids
 
+    old_attributes = @product.attributes.slice(
+      "name", "slug", "model", "sku", "description", "short_description",
+      "material", "hsn_code", "tax_rate", "is_active", "is_featured", "is_new",
+      "brand_id", "category_id", "features", "care_instructions"
+    )
+    old_brand_name = @product.brand&.name
+    old_category_name = @product.category&.name
+    old_variants = @product.product_variants.map { |v| [v.id, { sku: v.variant_sku, price: v.price, selling_price: v.selling_price, dealer_price: v.dealer_price, is_active: v.is_active }] }.to_h
+    old_specs = @product.product_specifications.map { |s| [s.key, s.value] }.to_h
+    old_media_count = @product.media.attached? ? @product.media_attachments.count : 0
+
     if @product.update(normalized_product_params)
       purge_media_blobs!(@product, purge_blob_ids)
       apply_variant_media_purges!(variant_purge_map)
       apply_color_media_purges!(color_purge_map)
-      notify_admins_entity_updated(@product)
+
+      changes = compute_product_changes(
+        old_attributes, old_brand_name, old_category_name,
+        old_variants, old_specs, old_media_count
+      )
+      notify_admins_entity_updated(@product, changes)
         render json: serialize_resource(@product, ProductSerializer, base_url: request.base_url).merge(
           message: "Product updated successfully"
         ), status: :ok
@@ -374,22 +390,103 @@ module Api
       AdminUser.where(is_super_admin: true).pluck(:email)
     end
 
+    def compute_product_changes(old_attrs, old_brand_name, old_category_name, old_variants, old_specs, old_media_count)
+      changes = {}
+
+      # 1. Main product direct attributes
+      current_attrs = @product.reload.attributes
+      old_attrs.each do |key, old_val|
+        new_val = current_attrs[key]
+        next if old_val == new_val
+
+        case key
+        when "brand_id"
+          new_brand_name = @product.brand&.name || Brand.find_by(id: new_val)&.name
+          changes["brand"] = { from: old_brand_name.presence || "—", to: new_brand_name.presence || "—" }
+        when "category_id"
+          new_cat_name = @product.category&.name || Category.find_by(id: new_val)&.name
+          changes["category"] = { from: old_category_name.presence || "—", to: new_cat_name.presence || "—" }
+        else
+          changes[key] = { from: old_val, to: new_val }
+        end
+      end
+
+      # 2. Variants / Prices changes
+      @product.product_variants.reload.each do |v|
+        old_v = old_variants[v.id]
+        if old_v.present?
+          label_suffix = v.variant_sku.present? ? " (#{v.variant_sku})" : ""
+          if old_v[:price] != v.price
+            changes["price#{label_suffix}"] = { from: old_v[:price] ? "₹#{old_v[:price]}" : "—", to: v.price ? "₹#{v.price}" : "—" }
+          end
+          if old_v[:selling_price] != v.selling_price
+            changes["selling_price#{label_suffix}"] = { from: old_v[:selling_price] ? "₹#{old_v[:selling_price]}" : "—", to: v.selling_price ? "₹#{v.selling_price}" : "—" }
+          end
+          if old_v[:dealer_price] != v.dealer_price
+            changes["dealer_price#{label_suffix}"] = { from: old_v[:dealer_price] ? "₹#{old_v[:dealer_price]}" : "—", to: v.dealer_price ? "₹#{v.dealer_price}" : "—" }
+          end
+          if old_v[:is_active] != v.is_active
+            changes["status#{label_suffix}"] = { from: old_v[:is_active] ? "Active" : "Inactive", to: v.is_active ? "Active" : "Inactive" }
+          end
+        else
+          changes["new_variant"] = { from: "—", to: "#{v.variant_sku.presence || 'Default'} (₹#{v.selling_price || v.price})" }
+        end
+      end
+
+      old_variants.each do |vid, vdata|
+        unless @product.product_variants.exists?(id: vid)
+          changes["removed_variant"] = { from: vdata[:sku], to: "—" }
+        end
+      end
+
+      # 3. Product Specifications
+      new_specs = @product.product_specifications.reload.map { |s| [s.key, s.value] }.to_h
+      (old_specs.keys | new_specs.keys).each do |k|
+        if old_specs[k] != new_specs[k]
+          changes["specification_#{k}"] = { from: old_specs[k] || "—", to: new_specs[k] || "Removed" }
+        end
+      end
+
+      # 4. Media Files
+      new_media_count = @product.media.attached? ? @product.media_attachments.count : 0
+      if new_media_count != old_media_count
+        changes["media_files"] = { from: "#{old_media_count} files", to: "#{new_media_count} files" }
+      end
+
+      # Fallback to direct saved_changes if custom diff was empty
+      if changes.empty?
+        @product.saved_changes.except("updated_at", "created_at", "primary_media_blob_id").each do |k, (before, after)|
+          changes[k] = { from: before, to: after }
+        end
+      end
+
+      changes
+    end
+
     def notify_admins_entity_created(product)
       details = product.attributes.except("id", "created_at", "updated_at", "primary_media_blob_id")
+      details["brand"] = product.brand&.name || details["brand_id"]
+      details.delete("brand_id")
+      details["category"] = product.category&.name || details["category_id"]
+      details.delete("category_id")
       get_admin_emails.each do |email|
         AdminNotificationMailer.entity_created(email, "Product", product.name, current_admin, details).deliver_later
       end
     end
 
-    def notify_admins_entity_updated(product)
-      changes = product.saved_changes.except("updated_at", "created_at").transform_values { |v| { from: v[0], to: v[1] } }
+    def notify_admins_entity_updated(product, custom_changes = nil)
+      changes = custom_changes || product.saved_changes.except("updated_at", "created_at").transform_values { |v| { from: v[0], to: v[1] } }
       get_admin_emails.each do |email|
         AdminNotificationMailer.entity_updated(email, "Product", product.name, current_admin, changes).deliver_later
       end
     end
 
     def notify_admins_entity_deleted(product)
-      details = product.attributes.except("id", "created_at", "updated_at")
+      details = product.attributes.except("id", "created_at", "updated_at", "primary_media_blob_id")
+      details["brand"] = product.brand&.name || details["brand_id"]
+      details.delete("brand_id")
+      details["category"] = product.category&.name || details["category_id"]
+      details.delete("category_id")
       get_admin_emails.each do |email|
         AdminNotificationMailer.entity_deleted(email, "Product", product.name, current_admin, details).deliver_later
       end

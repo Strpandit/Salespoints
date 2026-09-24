@@ -88,8 +88,18 @@ module Api
     end
 
     def update
+      old_brands = @category.brands.pluck(:name).sort.join(", ").presence || "None"
+      old_icon_attached = @category.cat_icon.attached?
       if @category.update(category_params)
-        notify_admins_entity_updated(@category)
+        changes = @category.saved_changes.except("updated_at", "created_at").transform_values { |v| { from: v[0], to: v[1] } }
+        new_brands = @category.brands.reload.pluck(:name).sort.join(", ").presence || "None"
+        if old_brands != new_brands
+          changes["assigned_brands"] = { from: old_brands, to: new_brands }
+        end
+        if old_icon_attached != @category.cat_icon.attached?
+          changes["icon"] = { from: old_icon_attached ? "Present" : "None", to: @category.cat_icon.attached? ? "Updated" : "Removed" }
+        end
+        notify_admins_entity_updated(@category, changes)
         render json: serialize_resource(@category, CategorySerializer, base_url: request.base_url).merge(message: "Category updated successfully"), status: :ok
       else
         render json: { error: @category.errors.full_messages }, status: :unprocessable_entity
@@ -156,13 +166,14 @@ module Api
 
     def notify_admins_entity_created(category)
       details = category.attributes.except("id", "created_at", "updated_at")
+      details["assigned_brands"] = category.brands.pluck(:name).join(", ").presence || "None"
       get_admin_emails.each do |email|
         AdminNotificationMailer.entity_created(email, "Category", category.name, current_admin, details).deliver_later
       end
     end
 
-    def notify_admins_entity_updated(category)
-      changes = category.saved_changes.except("updated_at", "created_at").transform_values { |v| { from: v[0], to: v[1] } }
+    def notify_admins_entity_updated(category, custom_changes = nil)
+      changes = custom_changes || category.saved_changes.except("updated_at", "created_at").transform_values { |v| { from: v[0], to: v[1] } }
       get_admin_emails.each do |email|
         AdminNotificationMailer.entity_updated(email, "Category", category.name, current_admin, changes).deliver_later
       end

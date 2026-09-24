@@ -4,17 +4,6 @@ class ApplicationMailer < ActionMailer::Base
 
   helper_method :format_currency, :format_date, :payment_method_label, :format_address, :format_amount
 
-  # ---------------------------------------------------------------------
-  # Shared email design system
-  #
-  # Every mailer view is expected to render ONLY inner content (no
-  # <html>/<head>/<body>/wrapping card) — the outer white rounded card,
-  # font and footer come from app/views/layouts/mailer.html.erb.
-  #
-  # These helpers give every email the same header banner, buttons,
-  # boxes and tables so the only thing that changes between emails is
-  # the copy, not the layout.
-  # ---------------------------------------------------------------------
   helper_method :mailer_banner, :mailer_body_open, :mailer_body_close, :mailer_otp_box,
                 :mailer_button, :mailer_notice, :mailer_info_table, :mailer_changes_table,
                 :mailer_detail_grid, :mailer_actor_block, :mailer_order_item_row,
@@ -54,13 +43,10 @@ class ApplicationMailer < ActionMailer::Base
   end
 
   def esc(value)
+    return value if value.is_a?(ActiveSupport::SafeBuffer)
     ERB::Util.html_escape(value.to_s)
   end
 
-  # Turns any raw Ruby value (as pulled straight from an AR attributes hash,
-  # a saved_changes diff, JSON array/hash columns, booleans, times, etc.)
-  # into a short human-readable string instead of Ruby's raw #to_s dump
-  # (e.g. ["a", "b"] or {"k"=>"v"}) leaking into an email.
   def mailer_format_value(value)
     case value
     when nil
@@ -70,11 +56,37 @@ class ApplicationMailer < ActionMailer::Base
     when false
       "No"
     when String, Symbol
-      value.to_s.presence || "—"
+      str = value.to_s.strip
+      if (str.start_with?("[") && str.end_with?("]")) || (str.start_with?("{") && str.end_with?("}"))
+        begin
+          parsed = JSON.parse(str)
+          return mailer_format_value(parsed)
+        rescue JSON::ParserError
+          # not json, proceed
+        end
+      end
+
+      if str.include?("\t")
+        parts = str.split("\t", 2)
+        "#{parts[0].strip}: #{parts[1].strip}"
+      else
+        str.presence || "—"
+      end
     when Array
-      value.compact.map { |v| mailer_format_value(v) }.reject { |v| v == "—" }.join(", ").presence || "—"
+      formatted_items = value.compact.map do |item|
+        mailer_format_value(item)
+      end.reject { |v| v == "—" || v.blank? }
+
+      return "—" if formatted_items.empty?
+
+      formatted_items.join("\n").presence || "—"
     when Hash
-      value.map { |k, v| "#{k.to_s.humanize}: #{mailer_format_value(v)}" }.join("; ").presence || "—"
+      formatted = value.map do |k, v|
+        formatted_val = mailer_format_value(v)
+        next if formatted_val == "—"
+        "#{k.to_s.humanize}: #{formatted_val}"
+      end.compact.reject(&:blank?)
+      formatted.join("\n").presence || "—"
     when Time, DateTime, ActiveSupport::TimeWithZone
       format_date(value)
     when Date
@@ -84,8 +96,6 @@ class ApplicationMailer < ActionMailer::Base
     end
   end
 
-  # Header banner every email opens with — same dark navy start, a
-  # theme-tinted end, an eyebrow badge, a title and an optional subtitle.
   def mailer_banner(title:, subtitle: nil, badge: nil, theme: :info)
     t = mailer_theme(theme)
     badge_html = if badge.present?
@@ -127,7 +137,6 @@ class ApplicationMailer < ActionMailer::Base
     "</td></tr></table>".html_safe
   end
 
-  # Small inline colour pill, e.g. for order/ticket status.
   def mailer_badge(text, theme: :info)
     t = mailer_theme(theme)
     %(<span style="display:inline-block; background-color: #{t[:soft_bg]}; color: #{t[:soft_text]}; border: 1px solid #{t[:soft_border]}; border-radius: 20px; padding: 4px 12px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px;">#{esc(text)}</span>).html_safe
@@ -175,8 +184,6 @@ class ApplicationMailer < ActionMailer::Base
     HTML
   end
 
-  # Coloured callout box. `text` may be an html_safe fragment (e.g. built
-  # with `esc` + manual <strong> tags) or plain text.
   def mailer_notice(text, theme: :info, title: nil)
     t = mailer_theme(theme)
     title_html = title.present? ? %(<strong>#{esc(title)}</strong> ) : ""
@@ -193,10 +200,23 @@ class ApplicationMailer < ActionMailer::Base
     HTML
   end
 
-  # rows: array of [label, value] — a simple two-column label/value card.
   def mailer_info_table(rows)
     rows_html = rows.map do |label, value|
-      %(<tr><td style="padding: 6px 0; color: #64748b; font-size: 13px; vertical-align: top; width: 45%; word-break: break-word; overflow-wrap: anywhere;">#{esc(label)}</td><td data-value="1" style="padding: 6px 0; color: #0f172a; font-size: 13px; font-weight: 700; text-align: right; vertical-align: top; word-break: break-word; overflow-wrap: anywhere;">#{esc(mailer_format_value(value))}</td></tr>)
+      human_label = label.to_s.humanize
+      resolved_value = value
+      if label.to_s == "brand_id" || label.to_s.downcase == "brand"
+        if value.is_a?(Integer) || (value.is_a?(String) && value =~ /^\d+$/)
+          resolved_value = Brand.find_by(id: value)&.name || value
+        end
+        human_label = "Brand"
+      elsif label.to_s == "category_id" || label.to_s.downcase == "category"
+        if value.is_a?(Integer) || (value.is_a?(String) && value =~ /^\d+$/)
+          resolved_value = Category.find_by(id: value)&.name || value
+        end
+        human_label = "Category"
+      end
+
+      %(<tr><td style="padding: 6px 0; color: #64748b; font-size: 13px; vertical-align: top; width: 35%; word-break: break-word; overflow-wrap: anywhere;">#{esc(human_label)}</td><td data-value="1" style="padding: 6px 0; color: #0f172a; font-size: 13px; font-weight: 600; text-align: right; vertical-align: top; word-break: break-word; overflow-wrap: anywhere; white-space: pre-line; line-height: 1.5;">#{esc(mailer_format_value(resolved_value))}</td></tr>)
     end.join
 
     <<~HTML.html_safe
@@ -212,12 +232,23 @@ class ApplicationMailer < ActionMailer::Base
     HTML
   end
 
-  # changes: hash of field => {from:, to:} (or "from"/"to" string keys)
   def mailer_changes_table(changes)
     rows_html = changes.map do |field, diff|
       from = diff[:from] || diff["from"]
       to   = diff[:to] || diff["to"]
-      %(<tr><td style="padding: 10px; font-weight: 600; color: #334155; border-bottom: 1px solid #f1f5f9; font-size: 13px; word-break: break-word; overflow-wrap: anywhere;">#{esc(field.to_s.humanize)}</td><td style="padding: 10px; color: #94a3b8; border-bottom: 1px solid #f1f5f9; font-size: 13px; word-break: break-word; overflow-wrap: anywhere;">#{esc(mailer_format_value(from))}</td><td style="padding: 10px; font-weight: 700; color: #059669; border-bottom: 1px solid #f1f5f9; font-size: 13px; word-break: break-word; overflow-wrap: anywhere;">#{esc(mailer_format_value(to))}</td></tr>)
+
+      field_name = field.to_s.humanize
+      if field.to_s == "brand_id" || field.to_s.downcase == "brand"
+        field_name = "Brand"
+        from = Brand.find_by(id: from)&.name || from if from.is_a?(Integer) || (from.is_a?(String) && from =~ /^\d+$/)
+        to   = Brand.find_by(id: to)&.name || to if to.is_a?(Integer) || (to.is_a?(String) && to =~ /^\d+$/)
+      elsif field.to_s == "category_id" || field.to_s.downcase == "category"
+        field_name = "Category"
+        from = Category.find_by(id: from)&.name || from if from.is_a?(Integer) || (from.is_a?(String) && from =~ /^\d+$/)
+        to   = Category.find_by(id: to)&.name || to if to.is_a?(Integer) || (to.is_a?(String) && to =~ /^\d+$/)
+      end
+
+      %(<tr><td style="padding: 10px; font-weight: 600; color: #334155; border-bottom: 1px solid #f1f5f9; font-size: 13px; word-break: break-word; overflow-wrap: anywhere; vertical-align: top;">#{esc(field_name)}</td><td style="padding: 10px; color: #94a3b8; border-bottom: 1px solid #f1f5f9; font-size: 13px; word-break: break-word; overflow-wrap: anywhere; vertical-align: top; white-space: pre-line; line-height: 1.4;">#{esc(mailer_format_value(from))}</td><td style="padding: 10px; font-weight: 700; color: #059669; border-bottom: 1px solid #f1f5f9; font-size: 13px; word-break: break-word; overflow-wrap: anywhere; vertical-align: top; white-space: pre-line; line-height: 1.4;">#{esc(mailer_format_value(to))}</td></tr>)
     end.join
 
     <<~HTML.html_safe
@@ -239,14 +270,10 @@ class ApplicationMailer < ActionMailer::Base
     HTML
   end
 
-  # details: hash of field => value — flat key/value list.
   def mailer_detail_grid(details)
     mailer_info_table(details.map { |field, value| [field.to_s.humanize, value] })
   end
 
-  # `email:` is accepted (and used to pick an avatar initial when there's no
-  # name) but intentionally never rendered — admin-facing "performed by"
-  # blocks show only the staff member's name, not their personal email.
   def mailer_actor_block(name:, email: nil, theme: :info)
     t = mailer_theme(theme)
     initial = esc((name.presence || email.presence || "?").to_s[0].to_s.upcase)
@@ -289,7 +316,6 @@ class ApplicationMailer < ActionMailer::Base
     HTML
   end
 
-  # rows: array of [label, value] shown small + right aligned, `total` shown large/bold on its own row.
   def mailer_order_totals(rows: [], total:)
     rows_html = rows.map do |label, value|
       %(<tr><td style="padding: 2px 0; color: #64748b; font-size: 13px;">#{esc(label)}</td><td align="right" style="padding: 2px 0; color: #334155; font-size: 13px;">#{esc(value)}</td></tr>)

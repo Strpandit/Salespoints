@@ -83,8 +83,14 @@ module Api
     end
 
     def update
+      old_categories = @brand.categories.pluck(:name).sort.join(", ").presence || "None"
       if @brand.update(brand_params)
-        notify_admins_entity_updated(@brand)
+        changes = @brand.saved_changes.except("updated_at", "created_at").transform_values { |v| { from: v[0], to: v[1] } }
+        new_categories = @brand.categories.reload.pluck(:name).sort.join(", ").presence || "None"
+        if old_categories != new_categories
+          changes["assigned_categories"] = { from: old_categories, to: new_categories }
+        end
+        notify_admins_entity_updated(@brand, changes)
         render json: serialize_resource(@brand, BrandSerializer).merge(message: "Brand updated successfully"), status: :ok
       else
         render json: { error: @brand.errors.full_messages }, status: :unprocessable_entity
@@ -139,13 +145,14 @@ module Api
 
     def notify_admins_entity_created(brand)
       details = brand.attributes.except("id", "created_at", "updated_at")
+      details["assigned_categories"] = brand.categories.pluck(:name).join(", ").presence || "None"
       get_admin_emails.each do |email|
         AdminNotificationMailer.entity_created(email, "Brand", brand.name, current_admin, details).deliver_later
       end
     end
 
-    def notify_admins_entity_updated(brand)
-      changes = brand.saved_changes.except("updated_at", "created_at").transform_values { |v| { from: v[0], to: v[1] } }
+    def notify_admins_entity_updated(brand, custom_changes = nil)
+      changes = custom_changes || brand.saved_changes.except("updated_at", "created_at").transform_values { |v| { from: v[0], to: v[1] } }
       get_admin_emails.each do |email|
         AdminNotificationMailer.entity_updated(email, "Brand", brand.name, current_admin, changes).deliver_later
       end

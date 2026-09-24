@@ -29,7 +29,7 @@ class DealerBankVerificationService
     @cashfree = CashfreeService.new
   end
 
-  def verify!(account_number:, confirm_account_number:, account_holder_name:, ifsc_code:)
+  def verify!(account_number:, confirm_account_number:, account_holder_name:, ifsc_code:, is_admin: false)
     normalized_account_number = account_number.to_s.gsub(/\s+/, "")
     normalized_confirm_account = confirm_account_number.to_s.gsub(/\s+/, "")
     normalized_ifsc = ifsc_code.to_s.strip.upcase
@@ -80,13 +80,13 @@ class DealerBankVerificationService
     # 4. Rate Limiting: 60-second cooldown check
     cooldown_left = cooldown_remaining_seconds
     if cooldown_left > 0
-      raise StandardError, "Please wait #{cooldown_left}s before attempting verification again."
+      raise StandardError, "Please wait #{cooldown_left}s cooldown before attempting verification again."
     end
 
     # 5. Rate Limiting: 3 attempts in 24 hours
     attempts_used = attempts_used_in_24h
     if attempts_used >= MAX_ATTEMPTS_PER_24H
-      raise StandardError, "Maximum limit of #{MAX_ATTEMPTS_PER_24H} verification attempts in 24 hours reached. Please upload a cancelled cheque for manual admin approval."
+      raise StandardError, "Maximum limit of #{MAX_ATTEMPTS_PER_24H} verification attempts in 24 hours reached for this account. Please verify manually or try after 24 hours."
     end
 
     # 6. Verify with Cashfree (Single API Hit for both IFSC + Account)

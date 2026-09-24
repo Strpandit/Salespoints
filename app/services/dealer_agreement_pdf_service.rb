@@ -91,15 +91,18 @@ class DealerAgreementPdfService
       },
       {
         title: "4. Marketplace Commission",
-        body: "B2B Orders:\n" \
-              "Platform Commission: 1.50% (GST treatment shall be as per the Dealer Agreement).\n" \
-              "Commission will be deducted before settlement.\n\n" \
-              "B2C Orders:\n" \
-              "Platform Commission: 2.50%\n" \
-              "Commission will be deducted before settlement.\n\n" \
-              "Offer Mart – B2B & B2C:\n" \
-              "Activated Mobile Phones and Reselling Products: Platform Commission: 3.00%\n" \
-              "Commission will be deducted before settlement."
+        body: "1. B2B Orders — Accessories Category (Tiered Slab + 18% GST):\n" \
+              "• Order Value Under ₹500: 10.00% Platform Commission + 18% GST\n" \
+              "• Order Value ₹500 to ₹2,000: 7.00% Platform Commission + 18% GST\n" \
+              "• Order Value ₹2,000 to ₹7,000: 5.00% Platform Commission + 18% GST\n" \
+              "• Order Value Above ₹7,000: 3.00% Platform Commission + 18% GST\n\n" \
+              "2. B2B Orders — General (Mobiles, Electronics & Non-Accessories):\n" \
+              "• Platform Commission: 1.50% (GST treatment shall be as per the Dealer Agreement).\n\n" \
+              "3. B2C Orders (All Categories):\n" \
+              "• Platform Commission: 2.50%\n\n" \
+              "4. Offer Mart — B2B & B2C:\n" \
+              "• Activated Mobile Phones and Reselling Products: 3.00% Platform Commission.\n\n" \
+              "All platform commissions are deducted before final payout settlement."
       },
       {
         title: "5. Payment Settlement",
