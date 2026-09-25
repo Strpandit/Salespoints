@@ -1,5 +1,5 @@
 class B2bDirectOrderService
-  COD_LIMIT = 50_000.to_d
+  COD_LIMIT = PaymentLimits::COD_LIMIT
   INITIAL_RADIUS = 10
 
   def initialize(buyer:, product_id:, product_variant_id:, product_variant_color_id: nil, quantity:, payment_method: nil, payment_status: "pending", buyer_payment_attempt: nil, pincode: nil, delivery_address: nil, use_business_address: true)
@@ -143,7 +143,7 @@ class B2bDirectOrderService
 
   def check_cod_limit(total)
     if @payment_method == "cod" && total > COD_LIMIT
-      raise StandardError, "COD is allowed only up to Rs 50,000"
+      raise StandardError, "COD is allowed only up to #{PaymentLimits::COD_LIMIT_LABEL}"
     end
   end
 end

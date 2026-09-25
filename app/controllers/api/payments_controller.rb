@@ -157,7 +157,7 @@ module Api
       return render json: { error: "Payment already completed" }, status: :unprocessable_entity if order.payment_status == "paid"
       return render json: { error: "Payment link expired" }, status: :unprocessable_entity if order.expires_at.present? && order.expires_at < Time.current
 
-      if order.total_amount > 50000 && order.payment_method == "cod"
+      if order.total_amount > PaymentLimits::COD_LIMIT && order.payment_method == "cod"
         cod_allowed = false
       else
         cod_allowed = true
@@ -174,6 +174,7 @@ module Api
         request_status: order.request_status,
         expires_at: order.expires_at,
         cod_allowed: cod_allowed,
+        cod_limit: PaymentLimits::COD_LIMIT.to_f,
         items: B2bOrderItemSerializer.render(items)
       }
     end

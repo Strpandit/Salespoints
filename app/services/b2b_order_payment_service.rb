@@ -1,6 +1,6 @@
 class B2bOrderPaymentService
   include Rails.application.routes.url_helpers
-  COD_LIMIT = 50_000.to_d
+  COD_LIMIT = PaymentLimits::COD_LIMIT
   
   def default_url_options
     { host: ENV.fetch("APP_URL", "https://api.salespoints.in") }
@@ -30,7 +30,7 @@ class B2bOrderPaymentService
       end
 
       if @payment_method == "cod" && @order.total_amount > COD_LIMIT
-        raise StandardError, "COD is not allowed for orders above ₹#{COD_LIMIT}. Please choose online payment."
+        raise StandardError, "COD is not allowed for orders above #{PaymentLimits::COD_LIMIT_LABEL}. Please choose online payment."
       end
 
       if @payment_method == "cod"

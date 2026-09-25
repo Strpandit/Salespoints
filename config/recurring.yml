@@ -37,3 +37,8 @@ production:
     class: WholesalerPostExpiryReminderJob
     queue: cleanup
     schedule: every 10 minutes
+
+  dealer_offer_expiry_reminder:
+    class: DealerOfferExpiryReminderJob
+    queue: cleanup
+    schedule: every 10 minutes

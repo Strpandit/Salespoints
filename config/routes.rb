@@ -17,7 +17,20 @@ Rails.application.routes.draw do
           get :download_invoice
         end
       end
+
+      # Home page banners (hero carousel + flash sale), managed from the admin panel
+      resources :hero_slides, except: [:new, :edit] do
+        member { patch :toggle }
+        collection { patch :reorder }
+      end
+      resources :flash_sales, except: [:new, :edit] do
+        member { patch :toggle }
+        collection { get :item_options }
+      end
     end
+
+    get "storefront/hero_slides", to: "storefront#hero_slides"
+    get "storefront/flash_sale", to: "storefront#flash_sale"
     resources :dealer_orders, only: [:index, :show]
     resources :accounts do
       put :change_password, on: :member

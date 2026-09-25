@@ -1,6 +1,6 @@
 class B2bWholesalerDirectOrderService
   include Rails.application.routes.url_helpers
-  COD_LIMIT = 50_000.to_d
+  COD_LIMIT = PaymentLimits::COD_LIMIT
   GST_PERCENTAGE = 18.0
 
   def initialize(buyer:, seller:, wholesaler_post:, quantity:, latitude:, longitude:, requested_radius_km: nil, payment_method: nil, payment_status: "pending", buyer_payment_attempt: nil)
@@ -115,6 +115,9 @@ class B2bWholesalerDirectOrderService
     end
     raise StandardError, "Invalid seller" if @seller.blank?
     raise StandardError, "Buyer cannot order from self" if @buyer.id == @seller.id
+
+    min_qty = @wholesaler_post.effective_min_order_quantity
+    raise StandardError, "Minimum order quantity for this post is #{min_qty} units" if @quantity < min_qty
   end
 
   def calculate_gst(unit_price, quantity)
@@ -123,7 +126,7 @@ class B2bWholesalerDirectOrderService
 
   def check_cod_limit(total)
     if @payment_method == "cod" && total > COD_LIMIT
-      raise StandardError, "COD is allowed only up to Rs 50,000"
+      raise StandardError, "COD is allowed only up to #{PaymentLimits::COD_LIMIT_LABEL}"
     end
   end
 

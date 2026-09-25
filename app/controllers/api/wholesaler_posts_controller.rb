@@ -9,10 +9,10 @@ module Api
       if current_dealer.present?
         dealer_pincode = current_dealer.pincode
         posts = posts.where(
-          "dealer_id = :dealer_id OR (approve_status = :approved AND (created_at >= :cutoff OR reuploaded_at >= :cutoff) AND :dealer_pincode = ANY(pincodes))",
+          "dealer_id = :dealer_id OR (approve_status = :approved AND #{WholesalerPost::LIVE_UNTIL_SQL} > :now AND :dealer_pincode = ANY(pincodes))",
           dealer_id: current_dealer.id,
           approved: "approved",
-          cutoff: 7.days.ago,
+          now: Time.current,
           dealer_pincode: dealer_pincode
         )
       elsif current_admin.present?
@@ -116,6 +116,7 @@ module Api
 
       post = current_dealer.wholesaler_posts.new(wholesaler_post_params)
       post.approve_status = "pending"
+      post.listing_edit = true
 
       return render json: { error: "Invalid dealer product selection" }, status: :unprocessable_entity if invalid_dealer_product?(post.dealer_product_id)
 
@@ -247,6 +248,7 @@ module Api
       end
 
       post.assign_attributes(wholesaler_post_params)
+      post.listing_edit = true
       post.approve_status = "pending" if post.changed?
       post.reviewed_at = nil if post.changed?
       post.reviewed_by_admin = nil if post.changed?
@@ -281,7 +283,11 @@ module Api
         return render json: { error: "This post cannot be re-uploaded. Only expired approved posts can be re-uploaded." }, status: :unprocessable_entity
       end
 
-      if post.reupload!
+      if params[:live_days].present? && !LiveDuration::OPTIONS.include?(params[:live_days].to_i)
+        return render json: { error: "Live duration must be one of #{LiveDuration::OPTIONS.join(', ')} days" }, status: :unprocessable_entity
+      end
+
+      if post.reupload!(new_live_days: params[:live_days])
         render json: { 
           data: post_payload(post), 
           message: "Post re-uploaded successfully. Waiting for admin approval." 
@@ -330,7 +336,12 @@ module Api
         return render json: { error: "This product is not available for your pincode" }, status: :unprocessable_entity
       end
 
-      qty = params[:quantity].to_i.positive? ? params[:quantity].to_i : 1
+      min_qty = post.effective_min_order_quantity
+      qty = params[:quantity].to_i.positive? ? params[:quantity].to_i : min_qty
+
+      if qty < min_qty
+        return render json: { error: "Minimum order quantity for this post is #{min_qty} units" }, status: :unprocessable_entity
+      end
 
       requested_radius = params[:radius_km].presence&.to_f
       if requested_radius.blank? || requested_radius <= 0
@@ -413,6 +424,7 @@ module Api
       end
 
       post.assign_attributes(admin_wholesaler_post_params)
+      post.listing_edit = true
       post.reviewed_by_admin = current_admin
       post.reviewed_at = Time.current
 
@@ -431,11 +443,11 @@ module Api
     end
 
     def admin_wholesaler_post_params
-      params.require(:wholesaler_post).permit(:title, :body, :price, :stock_quantity, :modal_no, :hsn_code, :ad_hoc_color, :mf_year, pincodes: [])
+      params.require(:wholesaler_post).permit(:title, :body, :price, :stock_quantity, :min_order_quantity, :live_days, :modal_no, :hsn_code, :ad_hoc_color, :mf_year, pincodes: [])
     end
 
     def wholesaler_post_params
-      params.require(:wholesaler_post).permit(:title, :body, :price, :stock_quantity, :modal_no, :hsn_code, :dealer_product_id, :ad_hoc_color, :mf_year, media: [], pincodes: [])
+      params.require(:wholesaler_post).permit(:title, :body, :price, :stock_quantity, :min_order_quantity, :live_days, :modal_no, :hsn_code, :dealer_product_id, :ad_hoc_color, :mf_year, media: [], pincodes: [])
     end
 
     def invalid_dealer_product?(dealer_product_id)
@@ -458,6 +470,10 @@ module Api
         body: post.body,
         price: post.price,
         stock_quantity: post.stock_quantity,
+        min_order_quantity: post.min_order_quantity,
+        effective_min_order_quantity: post.effective_min_order_quantity,
+        live_days: post.live_days,
+        live_duration_label: post.live_duration_label,
         modal_no: post.modal_no,
         hsn_code: post.effective_hsn_code,
         ad_hoc_color: post.ad_hoc_color,

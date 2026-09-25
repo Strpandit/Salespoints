@@ -5,11 +5,11 @@ class WholesalerPostExpiryReminderJob < ApplicationJob
   ONE_HOUR_WINDOW = 1.hour
 
   def perform
-    WholesalerPost.approved_and_live.find_each do |post|
+    WholesalerPost.approved_and_live.live_window_open.includes(:dealer).find_each do |post|
       remaining = remaining_time(post)
       next if remaining.nil? || remaining <= 0
 
-      maybe_send_reminder!(post, 24) if remaining <= ONE_DAY_WINDOW
+      maybe_send_reminder!(post, 24) if remaining <= ONE_DAY_WINDOW && remaining > ONE_HOUR_WINDOW
       maybe_send_reminder!(post, 1) if remaining <= ONE_HOUR_WINDOW
     end
   end

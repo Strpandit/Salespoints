@@ -297,7 +297,7 @@ module Api
           pending: @dealer.wholesaler_posts.where(approve_status: "pending").count,
           approved: @dealer.wholesaler_posts.where(approve_status: "approved").count,
           rejected: @dealer.wholesaler_posts.where(approve_status: "rejected").count,
-          expired: @dealer.wholesaler_posts.where("created_at < ?", 7.days.ago).count
+          expired: @dealer.wholesaler_posts.live_window_closed.count
         }
       end
 
@@ -912,6 +912,10 @@ module Api
         hsn_code: post.hsn_code,
         ad_hoc_color: post.ad_hoc_color,
         stock_quantity: post.stock_quantity.to_i,
+        min_order_quantity: post.min_order_quantity.to_i,
+        live_days: post.live_days,
+        live_duration_label: post.live_duration_label,
+        visible_until: post.visible_until,
         pincodes: Array(post.pincodes).reject(&:blank?),
         rejection_reason: post.rejection_reason,
         created_at: post.created_at

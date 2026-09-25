@@ -15,7 +15,7 @@
     ["Live Until", @post.visible_until&.strftime("%d %B %Y, %I:%M %p") || "N/A"]
   ]) %>
 
-  <%= mailer_notice("Your post stays live for 7 days. If it expires before you make a sale, you can re-upload it in one click from your Wholesaler Posts screen.", theme: :success) %>
+  <%= mailer_notice("Your post stays live for #{@post.live_duration_label.downcase} (until #{@post.visible_until&.strftime("%d %b %Y, %I:%M %p")}). If it expires before you make a sale, you can re-upload it in one click from your Wholesaler Posts screen.", theme: :success) %>
 
   <%= mailer_button(url: "#{ENV['FRONTEND_URL'] || 'https://salespoints.in'}/dealer/wholesaler", text: "View Your Post", theme: :success) %>
 <%= mailer_body_close %>

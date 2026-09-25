@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.0].define(version: 2026_09_21_000001) do
+ActiveRecord::Schema[8.0].define(version: 2026_09_26_000001) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -454,6 +454,7 @@ ActiveRecord::Schema[8.0].define(version: 2026_09_21_000001) do
     t.datetime "updated_at", null: false
     t.datetime "reuploaded_at"
     t.string "slug"
+    t.integer "live_days", default: 7, null: false
     t.index ["approve_status", "is_active"], name: "index_dealer_offers_on_approve_status_and_is_active"
     t.index ["dealer_id"], name: "index_dealer_offers_on_dealer_id"
     t.index ["dealer_product_id"], name: "index_dealer_offers_on_dealer_product_id"
@@ -633,6 +634,53 @@ ActiveRecord::Schema[8.0].define(version: 2026_09_21_000001) do
     t.index ["seller_dealer_id"], name: "index_delivery_confirmations_on_seller_dealer_id"
     t.index ["status"], name: "index_delivery_confirmations_on_status"
     t.index ["token"], name: "index_delivery_confirmations_on_token", unique: true
+  end
+
+  create_table "flash_sale_items", force: :cascade do |t|
+    t.bigint "flash_sale_id", null: false
+    t.string "item_type", null: false
+    t.bigint "item_id", null: false
+    t.string "label"
+    t.integer "position", default: 0, null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["flash_sale_id", "item_type", "item_id"], name: "index_flash_sale_items_uniqueness", unique: true
+    t.index ["flash_sale_id"], name: "index_flash_sale_items_on_flash_sale_id"
+    t.index ["item_type", "item_id"], name: "index_flash_sale_items_on_item_type_and_item_id"
+  end
+
+  create_table "flash_sales", force: :cascade do |t|
+    t.string "title", null: false
+    t.string "badge_text", default: "LIMITED TIME DEALS"
+    t.text "subtitle"
+    t.datetime "starts_at", null: false
+    t.datetime "ends_at", null: false
+    t.boolean "is_active", default: true, null: false
+    t.boolean "show_countdown", default: true, null: false
+    t.integer "position", default: 0, null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["is_active", "starts_at", "ends_at"], name: "index_flash_sales_on_is_active_and_starts_at_and_ends_at"
+  end
+
+  create_table "hero_slides", force: :cascade do |t|
+    t.string "badge"
+    t.string "title"
+    t.string "highlight", null: false
+    t.text "subtitle"
+    t.string "discount_text"
+    t.string "cta_label", default: "Explore Now", null: false
+    t.string "link_url"
+    t.string "secondary_cta_label", default: "View Deals"
+    t.string "secondary_link_url", default: "/shop"
+    t.string "theme", default: "blue", null: false
+    t.integer "position", default: 0, null: false
+    t.boolean "is_active", default: true, null: false
+    t.datetime "starts_at"
+    t.datetime "ends_at"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["is_active", "position"], name: "index_hero_slides_on_is_active_and_position"
   end
 
   create_table "notifications", force: :cascade do |t|
@@ -1222,6 +1270,8 @@ ActiveRecord::Schema[8.0].define(version: 2026_09_21_000001) do
     t.string "ad_hoc_color"
     t.integer "stock_quantity", default: 0
     t.string "mf_year"
+    t.integer "live_days", default: 7, null: false
+    t.integer "min_order_quantity", default: 1, null: false
     t.index ["approve_status"], name: "index_wholesaler_posts_on_approve_status"
     t.index ["dealer_id"], name: "index_wholesaler_posts_on_dealer_id"
     t.index ["dealer_product_id"], name: "index_wholesaler_posts_on_dealer_product_id"
@@ -1269,6 +1319,7 @@ ActiveRecord::Schema[8.0].define(version: 2026_09_21_000001) do
   add_foreign_key "dealer_profiles", "dealers"
   add_foreign_key "dealers", "admin_users", column: "deleted_by_id"
   add_foreign_key "deletion_requests", "admin_users", column: "reviewed_by_admin_id"
+  add_foreign_key "flash_sale_items", "flash_sales", on_delete: :cascade
   add_foreign_key "order_broadcast_trackers", "dealers"
   add_foreign_key "order_broadcast_trackers", "orders"
   add_foreign_key "order_items", "dealer_products"

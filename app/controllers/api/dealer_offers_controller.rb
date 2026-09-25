@@ -111,7 +111,11 @@ module Api
         return render json: { error: "This offer cannot be re-uploaded. Only expired approved offers can be re-uploaded." }, status: :unprocessable_entity
       end
 
-      if @offer.reupload!
+      if params[:live_days].present? && !LiveDuration::OPTIONS.include?(params[:live_days].to_i)
+        return render json: { error: "Live duration must be one of #{LiveDuration::OPTIONS.join(', ')} days" }, status: :unprocessable_entity
+      end
+
+      if @offer.reupload!(new_live_days: params[:live_days])
         render json: {
           data: offer_payload(@offer),
           message: "Offer re-uploaded successfully. Waiting for admin approval."
@@ -227,7 +231,8 @@ module Api
     def scheme_categories
       render json: {
         scheme_categories: DealerOffer::SCHEME_CATEGORIES,
-        product_conditions: DealerOffer::PRODUCT_CONDITIONS
+        product_conditions: DealerOffer::PRODUCT_CONDITIONS,
+        live_day_options: LiveDuration.options_payload
       }, status: :ok
     end
 
@@ -344,7 +349,7 @@ module Api
         :device_model, :variant_name,
         :imei_required, :warranty, :included_accessories, :return_replacement,
         :offer_price, :tax_rate,
-        :available_quantity, :offer_starts_at, :offer_ends_at,
+        :available_quantity, :offer_starts_at, :offer_ends_at, :live_days,
         media: [], pincodes: []
       )
     end
@@ -423,6 +428,8 @@ module Api
         remaining_quantity: offer.remaining_quantity,
         offer_starts_at: offer.offer_starts_at,
         offer_ends_at: offer.offer_ends_at,
+        live_days: offer.live_days,
+        live_duration_label: offer.live_duration_label,
         reuploaded_at: offer.reuploaded_at,
         visible_until: offer.visible_until,
         pincodes: offer.pincodes,

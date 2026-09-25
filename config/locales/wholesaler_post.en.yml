@@ -1,0 +1,5 @@
+en:
+  activerecord:
+    attributes:
+      wholesaler_post:
+        min_order_quantity: "Minimum order quantity"

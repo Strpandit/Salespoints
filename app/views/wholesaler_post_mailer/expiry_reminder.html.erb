@@ -12,10 +12,11 @@
   <%= mailer_info_table([
     ["Post Title", @post.title],
     ["Price", @post.price.present? ? "₹#{@post.price.to_f.round(2)}" : "N/A"],
+    ["Live Duration", @post.live_duration_label],
     ["Expires On", @post.visible_until&.strftime("%d %B %Y, %I:%M %p") || "N/A"]
   ]) %>
 
-  <%= mailer_notice("Once it expires, buyers will no longer see this post. Re-upload it in one click to keep it live for another 7 days — it will need a quick admin re-approval.".html_safe, theme: :warning, title: "Don't lose visibility:") %>
+  <%= mailer_notice("Once it expires, buyers will no longer see this post. Re-upload it in one click to keep it live again for up to #{LiveDuration::MAX} days — it will need a quick admin re-approval.".html_safe, theme: :warning, title: "Don't lose visibility:") %>
 
   <%= mailer_button(url: "#{ENV['FRONTEND_URL'] || 'https://salespoints.in'}/dealer/wholesaler", text: "Re-upload Now", theme: :warning) %>
 <%= mailer_body_close %>

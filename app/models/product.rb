@@ -9,6 +9,7 @@ class Product < ApplicationRecord
   attr_accessor :purge_media_blob_ids
 
   has_many :product_variants, dependent: :destroy, inverse_of: :product
+  has_many :flash_sale_items, as: :item, dependent: :destroy
   has_many :product_variant_colors, dependent: :destroy, inverse_of: :product
   has_many :product_specifications, dependent: :destroy, inverse_of: :product
   has_many :dealer_products, dependent: :destroy

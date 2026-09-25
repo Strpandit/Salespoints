@@ -1,5 +1,6 @@
 class DealerOffer < ApplicationRecord
   include AttachableMediaValidations
+  include LiveDuration
 
   belongs_to :dealer
   belongs_to :dealer_product
@@ -8,6 +9,7 @@ class DealerOffer < ApplicationRecord
   belongs_to :reviewed_by_admin, class_name: "AdminUser", optional: true
 
   has_many :orders, dependent: :nullify
+  has_many :flash_sale_items, as: :item, dependent: :destroy
   has_many_attached :media
 
   APPROVE_STATUSES = %w[pending approved rejected].freeze
@@ -52,7 +54,10 @@ class DealerOffer < ApplicationRecord
   validate :validate_pincodes_format
 
   before_validation :auto_assign_dealer_defaults, on: :create
+  before_validation :sync_offer_window
   before_validation :set_slug, on: [ :create, :update ]
+
+  LIVE_UNTIL_SQL = "(COALESCE(dealer_offers.reuploaded_at, GREATEST(COALESCE(dealer_offers.offer_starts_at, dealer_offers.created_at), dealer_offers.created_at)) + (dealer_offers.live_days * INTERVAL '1 day'))".freeze
 
   scope :approved, -> { where(approve_status: "approved") }
   scope :visible_to_marketplace, -> {
@@ -63,7 +68,7 @@ class DealerOffer < ApplicationRecord
       .where("dealer_offers.available_quantity > dealer_offers.sold_quantity")
       .where("dealer_offers.offer_starts_at IS NULL OR dealer_offers.offer_starts_at <= ?", now)
       .where("dealer_offers.offer_ends_at IS NULL OR dealer_offers.offer_ends_at >= ?", now)
-      .where("(dealer_offers.reuploaded_at >= ?) OR (dealer_offers.reuploaded_at IS NULL AND (dealer_offers.offer_starts_at >= ? OR dealer_offers.created_at >= ?))", 7.days.ago, 7.days.ago, 7.days.ago)
+      .where("#{LIVE_UNTIL_SQL} >= ?", now)
   }
   scope :by_pincode, ->(pincode) { where("? = ANY(pincodes)", pincode.to_s) }
 
@@ -82,7 +87,7 @@ class DealerOffer < ApplicationRecord
   def visible_until
     base_date = reuploaded_at.presence || offer_starts_at.presence || created_at
     return offer_ends_at if offer_ends_at.present?
-    base_date&.+(7.days)
+    base_date&.+(live_duration)
   end
 
   def expired?
@@ -95,8 +100,10 @@ class DealerOffer < ApplicationRecord
     approve_status == "approved" && expired?
   end
 
-  def reupload!
+  def reupload!(new_live_days: nil)
     return false unless can_reupload?
+
+    self.live_days = new_live_days.to_i if new_live_days.present?
 
     update!(
       approve_status: "pending",
@@ -106,7 +113,7 @@ class DealerOffer < ApplicationRecord
       updated_at: Time.current,
       reuploaded_at: Time.current,
       offer_starts_at: Time.current,
-      offer_ends_at: Time.current + 7.days
+      offer_ends_at: Time.current + live_duration
     )
   end
 
@@ -196,7 +203,16 @@ class DealerOffer < ApplicationRecord
   def auto_assign_dealer_defaults
     self.seller_code = dealer&.dealer_code if seller_code.blank?
     self.offer_starts_at = Time.current if offer_starts_at.blank?
-    self.offer_ends_at = offer_starts_at + 7.days if offer_ends_at.blank?
+  end
+
+  def sync_offer_window
+    self.offer_starts_at = Time.current if offer_starts_at.blank?
+
+    explicit_end = will_save_change_to_offer_ends_at? && offer_ends_at.present?
+    return if explicit_end && !will_save_change_to_live_days?
+
+    window_changed = new_record? || will_save_change_to_live_days? || will_save_change_to_offer_starts_at?
+    self.offer_ends_at = offer_starts_at + live_duration if window_changed || offer_ends_at.blank?
   end
 
   def offer_window_valid
@@ -207,9 +223,8 @@ class DealerOffer < ApplicationRecord
       return
     end
 
-    # Max duration cannot exceed 7 days
-    if (offer_ends_at - offer_starts_at) > (7.days + 1.minute)
-      errors.add(:offer_ends_at, "duration cannot exceed 7 days from start date")
+    if (offer_ends_at - offer_starts_at) > (LiveDuration::MAX.days + 1.minute)
+      errors.add(:offer_ends_at, "duration cannot exceed #{LiveDuration::MAX} days from start date")
     end
   end
 
