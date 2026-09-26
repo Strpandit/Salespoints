@@ -207,6 +207,7 @@ module Api
 
       notify_dealers_on_approval(post)
       WholesalerPostNotificationService.notify_approved!(post)
+      ActivityLogger.log_admin(actor: current_admin, action: "wholesaler_post_approved", target: post, description: "Approved wholesale post '#{post.title}'", request: request)
 
       render json: { message: "Post approved", data: post_payload(post) }
     end
@@ -227,6 +228,7 @@ module Api
       )
 
       WholesalerPostNotificationService.notify_rejected!(post)
+      ActivityLogger.log_admin(actor: current_admin, action: "wholesaler_post_rejected", target: post, description: "Rejected wholesale post '#{post.title}'. Reason: #{params[:rejection_reason]}", request: request)
 
       render json: { message: "Post rejected", data: post_payload(post) }
     end
@@ -510,12 +512,7 @@ module Api
     end
 
     def attachment_payload(file)
-      {
-        id: file.id,
-        url: rails_blob_url(file, host: request.base_url),
-        filename: file.filename.to_s,
-        content_type: file.content_type.to_s
-      }
+      BlobUrlHelper.attachment_payload(file, host: request.base_url)
     end
 
     def dealer_display_name(dealer)

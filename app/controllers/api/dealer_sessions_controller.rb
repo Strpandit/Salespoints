@@ -9,6 +9,7 @@ module Api
       return unauthorized("Invalid credentials"), status: :unauthorized unless dealer&.authenticate(params[:password]) && dealer.active?
 
       token = JsonWebToken.encode(user_id: dealer.id, user_type: "Dealer")
+      ActivityLogger.log_auth(actor: dealer, action: "login", request: request)
 
       render json: {
         token: token,
@@ -28,6 +29,7 @@ module Api
         password: params[:new_password],
         password_confirmation: params[:confirm_password]
       )
+        ActivityLogger.log_auth(actor: dealer, action: "change_password", request: request)
         render json:{message:"Password changed"}, status: :ok
       else
         render json:{error: dealer.errors.full_messages}, status: :unprocessable_entity
@@ -41,6 +43,7 @@ module Api
       dealer.update!(otp_pin: rand(1000..9999), otp_sent_at: Time.current)
       Rails.cache.delete(reset_flow_cache_key(dealer.id))
       DealerAuthMailer.forgot_password_otp(dealer).deliver_later if dealer.email.present?
+      ActivityLogger.log_auth(actor: dealer, action: "forgot_password_otp_sent", request: request)
       render json: { message: "OTP sent successfully", id: dealer.id }, status: :ok
     end
 
@@ -56,6 +59,7 @@ module Api
 
       reset_token = SecureRandom.hex(24)
       Rails.cache.write(reset_flow_cache_key(dealer.id), reset_token, expires_in: RESET_FLOW_TTL)
+      ActivityLogger.log_auth(actor: dealer, action: "otp_verified", request: request)
 
       render json: { message: "OTP verified successfully", reset_token: reset_token }, status: :ok
     end
@@ -70,6 +74,7 @@ module Api
         dealer.update(otp_pin: nil, otp_sent_at: nil)
         Rails.cache.delete(reset_flow_cache_key(dealer.id))
         DealerAuthMailer.password_reset_confirmation(dealer).deliver_later if dealer.email.present?
+        ActivityLogger.log_auth(actor: dealer, action: "reset_password", request: request)
         render json: { message: "Password reset successfully" }, status: :ok
       else
         render json: { error: dealer.errors.full_messages }, status: :unprocessable_entity

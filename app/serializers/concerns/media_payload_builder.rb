@@ -29,23 +29,7 @@ module MediaPayloadBuilder
   end
 
   def file_payload(file)
-    return nil if file.blank?
-    blob = file.respond_to?(:blob) && file.blob.present? ? file.blob : file
-    return nil unless blob.respond_to?(:filename)
-
     host = options[:base_url] || Rails.application.config.active_storage.default_url_options&.dig(:host)
-    host = host.to_s.sub(%r{\Ahttp://}, "https://") if host.present?
-
-    url = Rails.application.routes.url_helpers.rails_blob_url(blob, host: host, protocol: "https")
-    url = url.sub(%r{\Ahttp://}, "https://") if url.present?
-
-    {
-      id: blob.id,
-      url: url,
-      filename: blob.filename.to_s,
-      content_type: blob.content_type.to_s
-    }
-  rescue => e
-    nil
+    BlobUrlHelper.attachment_payload(file, host: host)
   end
 end

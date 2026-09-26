@@ -39,12 +39,8 @@ class DealerProductSerializer < ApplicationSerializer
 
   def file_payload(file)
     host = options[:base_url] || Rails.application.config.active_storage.default_url_options&.dig(:host)
-    {
-      id: file.id,
-      url: Rails.application.routes.url_helpers.rails_blob_url(file, host: host),
-      filename: file.filename.to_s,
-      content_type: file.content_type.to_s,
-      is_primary: object.display_primary_blob_id == file.id
-    }
+    payload = BlobUrlHelper.attachment_payload(file, host: host) || {}
+    payload[:is_primary] = object.display_primary_blob_id == (file.respond_to?(:blob_id) ? file.blob_id : file.id)
+    payload
   end
 end

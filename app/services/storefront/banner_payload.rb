@@ -125,7 +125,7 @@ module Storefront
       return nil if attachment.blank?
       return nil if attachment.respond_to?(:attached?) && !attachment.attached?
 
-      rails_blob_url(attachment, host: @base_url)
+      BlobUrlHelper.blob_url(attachment, host: @base_url)
     rescue StandardError
       nil
     end

@@ -83,8 +83,10 @@ module Api
       if is_signup
         account.update(status: 'active')
         AccountMailer.signup_email(account).deliver_later if account.email.present?
+        ActivityLogger.log_auth(actor: account, action: "signup", request: request)
       else
         AccountMailer.login_notification(account).deliver_later if account.email.present?
+        ActivityLogger.log_auth(actor: account, action: "login", request: request)
       end
       
       token = JsonWebToken.encode(user_id: account.id, user_type: 'Account')
@@ -104,8 +106,9 @@ module Api
       return render json: { error: 'Invalid Google token' }, status: :unauthorized unless result
 
       account = Account.find_or_initialize_by(email: result[:email])
+      is_new = account.new_record?
 
-      if account.new_record?
+      if is_new
         generated_password = SecureRandom.urlsafe_base64(12)
         account.assign_attributes(
           email: result[:email],
@@ -119,12 +122,14 @@ module Api
           password_confirmation: generated_password
         )
         account.save!
+        ActivityLogger.log_auth(actor: account, action: "signup", request: request, details: { provider: "google" })
       else
         account.update!(
           provider: 'google',
           provider_uid: result[:uid],
           google_signup: true
         )
+        ActivityLogger.log_auth(actor: account, action: "login", request: request, details: { provider: "google" })
       end
 
       token = JsonWebToken.encode(user_id: account.id, user_type: 'Account')

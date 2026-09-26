@@ -8,6 +8,7 @@ module Api
       account.update!(reset_password_token: token, reset_password_sent_at: Time.current)
 
       AccountMailer.set_password(account).deliver_later
+      ActivityLogger.log_auth(actor: account, action: "forgot_password_link_sent", request: request)
       render json: { message: 'Reset link sent' }
     end
 
@@ -26,6 +27,7 @@ module Api
         status: 'active'
       )
 
+      ActivityLogger.log_auth(actor: account, action: "reset_password", request: request)
       render json: { message: 'Password set successfully' }
     end
   end

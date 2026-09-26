@@ -460,12 +460,7 @@ module Api
     end
 
     def attachment_payload(file)
-      {
-        id: file.id,
-        url: rails_blob_url(file, host: request.base_url),
-        filename: file.filename.to_s,
-        content_type: file.content_type.to_s
-      }
+      BlobUrlHelper.attachment_payload(file, host: request.base_url)
     end
 
     def dealer_display_name(dealer)

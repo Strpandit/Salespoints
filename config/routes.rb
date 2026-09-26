@@ -27,6 +27,14 @@ Rails.application.routes.draw do
         member { patch :toggle }
         collection { get :item_options }
       end
+
+      # Activity Logs (Super Admin only)
+      resources :activity_logs, only: [:index, :show] do
+        collection do
+          get :actors
+          get :stats
+        end
+      end
     end
 
     get "storefront/hero_slides", to: "storefront#hero_slides"

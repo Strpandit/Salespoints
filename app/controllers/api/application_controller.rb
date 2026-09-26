@@ -1,5 +1,7 @@
 module Api
   class ApplicationController < ActionController::API
+    include ActivityTrackable
+
     before_action :authenticate_request!
 
     attr_reader :current_user, :current_user_type
