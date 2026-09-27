@@ -39,6 +39,21 @@ class WholesalerPost < ApplicationRecord
   scope :by_pincodes, ->(pincodes) { where("pincodes && ARRAY[?]::varchar[]", pincodes) }
   scope :approved_and_live, -> { where(approve_status: "approved") }
   
+  def display_media_attachments
+    return media if media.attached?
+    return dealer_product.display_media_attachments if dealer_product.present?
+
+    []
+  end
+
+  def display_primary_blob_id
+    if media.attached?
+      media.first&.blob_id
+    elsif dealer_product.present?
+      dealer_product.display_primary_blob_id
+    end
+  end
+
   def effective_hsn_code
     return hsn_code if hsn_code.present?
     return dealer_product&.effective_hsn_code if dealer_product.present?

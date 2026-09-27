@@ -3,8 +3,14 @@ module Api
     before_action :require_admin!, only: [:pending, :approve, :reject]
 
     def index
-      posts = WholesalerPost.includes(:media_attachments, dealer: :dealer_profile)
-                            .order(Arel.sql("COALESCE(rating, 0) DESC"), created_at: :desc)
+      posts = WholesalerPost.includes(
+        :media_attachments,
+        dealer: :dealer_profile,
+        dealer_product: [
+          { product: { media_attachments: :blob } },
+          { product_variant: { product: { media_attachments: :blob } } }
+        ]
+      ).order(Arel.sql("COALESCE(rating, 0) DESC"), created_at: :desc)
 
       if current_dealer.present?
         dealer_pincode = current_dealer.pincode
@@ -96,7 +102,14 @@ module Api
     end
 
     def show
-      post = WholesalerPost.includes(:media_attachments, dealer: :dealer_profile).find_by(id: params[:id])
+      post = WholesalerPost.includes(
+        :media_attachments,
+        dealer: :dealer_profile,
+        dealer_product: [
+          { product: { media_attachments: :blob } },
+          { product_variant: { product: { media_attachments: :blob } } }
+        ]
+      ).find_by(id: params[:id])
       return render json: { error: "Not found" }, status: :not_found unless post
 
       unless post.visible_to_others? || current_dealer&.id == post.dealer_id || current_admin.present?
@@ -129,7 +142,14 @@ module Api
     end
 
     def pending
-      scope = WholesalerPost.includes(:media_attachments, dealer: :dealer_profile)
+      scope = WholesalerPost.includes(
+        :media_attachments,
+        dealer: :dealer_profile,
+        dealer_product: [
+          { product: { media_attachments: :blob } },
+          { product_variant: { product: { media_attachments: :blob } } }
+        ]
+      )
       if params[:status].present? && params[:status] != "all"
         scope = scope.where(approve_status: params[:status])
       end
@@ -505,7 +525,7 @@ module Api
             []
         },
         distance_km: post.respond_to?(:distance_km) ? post.distance_km : nil,
-        media: post.media.map { |file| attachment_payload(file) },
+        media: post.display_media_attachments.map { |file| attachment_payload(file) }.compact,
         created_at: post.created_at,
         reuploaded_at: post.reuploaded_at
       }

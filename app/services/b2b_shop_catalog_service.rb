@@ -95,11 +95,11 @@ class WholesalerPostCatalogWrapper
   end
 
   def display_media_attachments
-    wholesaler_post.media
+    wholesaler_post.display_media_attachments
   end
 
   def display_primary_blob_id
-    wholesaler_post.media.first&.blob_id
+    wholesaler_post.display_primary_blob_id
   end
 end
 
