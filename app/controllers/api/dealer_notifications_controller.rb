@@ -11,7 +11,8 @@ module Api
           next_page: items.next_page,
           prev_page: items.prev_page,
           total_pages: items.total_pages,
-          total_count: items.total_count
+          total_count: items.total_count,
+          unread_count: scope.count { |n| n.read_at.nil? }
         },
         message: "Notifications fetched successfully"
       }, status: :ok

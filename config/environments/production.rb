@@ -48,6 +48,10 @@ Rails.application.configure do
 
   # Replace the default in-process memory cache store with a durable alternative.
   # config.cache_store = :solid_cache_store
+  # OTP lockouts, password-reset sessions and rate limits live in the cache, so it must be shared by
+  # every Puma worker in the container (an in-process memory store would split them per worker).
+  # Move to a network store (Redis/Solid Cache) before running more than one web container.
+  config.cache_store = :file_store, Rails.root.join("tmp/cache/app")
 
   # Replace the default in-process and non-durable queuing backend for Active Job.
   config.active_job.queue_adapter = :solid_queue

@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.0].define(version: 2026_09_26_000001) do
+ActiveRecord::Schema[8.0].define(version: 2026_09_28_000001) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -33,6 +33,7 @@ ActiveRecord::Schema[8.0].define(version: 2026_09_26_000001) do
     t.string "country_code", default: "+91"
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
+    t.integer "token_version", default: 0, null: false
     t.index ["email"], name: "index_accounts_on_email", unique: true, where: "(deleted_at IS NULL)"
     t.index ["phone"], name: "index_accounts_on_phone", unique: true, where: "(deleted_at IS NULL)"
   end
@@ -64,6 +65,31 @@ ActiveRecord::Schema[8.0].define(version: 2026_09_26_000001) do
     t.string "variation_digest", null: false
     t.datetime "created_at", null: false
     t.index ["blob_id", "variation_digest"], name: "index_active_storage_variant_records_uniqueness", unique: true
+  end
+
+  create_table "activity_logs", force: :cascade do |t|
+    t.string "actor_type", null: false
+    t.bigint "actor_id", null: false
+    t.string "actor_name"
+    t.string "actor_email"
+    t.string "actor_role"
+    t.string "action", null: false
+    t.string "category", null: false
+    t.string "target_type"
+    t.bigint "target_id"
+    t.string "target_title"
+    t.text "description"
+    t.string "ip_address"
+    t.string "user_agent"
+    t.string "platform", default: "web"
+    t.jsonb "metadata", default: {}
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["action", "created_at"], name: "idx_activity_logs_on_action"
+    t.index ["actor_type", "actor_id", "created_at"], name: "idx_activity_logs_on_actor"
+    t.index ["category", "created_at"], name: "idx_activity_logs_on_category"
+    t.index ["created_at"], name: "idx_activity_logs_on_created_at"
+    t.index ["target_type", "target_id"], name: "idx_activity_logs_on_target"
   end
 
   create_table "addresses", force: :cascade do |t|
@@ -139,6 +165,7 @@ ActiveRecord::Schema[8.0].define(version: 2026_09_26_000001) do
     t.string "pincodes", default: [], array: true
     t.string "signup_token"
     t.datetime "signup_token_sent_at"
+    t.integer "token_version", default: 0, null: false
     t.index ["approval_status"], name: "index_admin_users_on_approval_status"
     t.index ["approved_by_id"], name: "index_admin_users_on_approved_by_id"
     t.index ["deleted_by_id"], name: "index_admin_users_on_deleted_by_id"
@@ -577,6 +604,7 @@ ActiveRecord::Schema[8.0].define(version: 2026_09_26_000001) do
     t.string "pincode"
     t.string "signup_token"
     t.datetime "signup_token_sent_at"
+    t.integer "token_version", default: 0, null: false
     t.index ["dealer_code"], name: "index_dealers_on_dealer_code", unique: true, where: "(deleted_at IS NULL)"
     t.index ["deleted_by_id"], name: "index_dealers_on_deleted_by_id"
     t.index ["email"], name: "index_dealers_on_email", unique: true, where: "(deleted_at IS NULL)"

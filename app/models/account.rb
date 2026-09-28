@@ -1,5 +1,6 @@
 class Account < ApplicationRecord
   include CrossActorUniqueness
+  include TokenRevocable
   has_secure_password validations: false
   acts_as_paranoid
 
@@ -8,7 +9,8 @@ class Account < ApplicationRecord
   has_many :orders, as: :buyer, dependent: :destroy
   has_many :payment_attempts, as: :buyer, dependent: :destroy
   has_many :notifications, as: :receiver, dependent: :destroy
-  has_many :deletion_requests, as: :requestable, dependent: :destroy
+  # Kept after the account is (soft) deleted so admins keep the approval history.
+  has_many :deletion_requests, as: :requestable
   has_many :push_subscriptions, as: :subscriber, dependent: :destroy
   has_many :support_tickets, foreign_key: "account_id", dependent: :destroy
   has_many :ticket_messages, foreign_key: "account_id", dependent: :destroy
@@ -36,7 +38,8 @@ class Account < ApplicationRecord
   end
 
   def otp_valid?(otp)
-    otp_pin == otp && otp_sent_at.present? && otp_sent_at > 5.minutes.ago
+    otp_pin.present? && otp_sent_at.present? && otp_sent_at > 5.minutes.ago &&
+      ActiveSupport::SecurityUtils.secure_compare(otp_pin.to_s, otp.to_s.strip)
   end
 
   def clear_otp!

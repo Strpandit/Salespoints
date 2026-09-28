@@ -37,6 +37,9 @@ module Api
             items = items.where(sell_in_b2b: true, sell_in_b2c: true)
           when "unlisted"
             items = items.where(sell_in_b2b: false, sell_in_b2c: false)
+          when "wholesale"
+            # Products the dealer has put up on the wholesaler feed (any post that was not rejected).
+            items = items.where(id: WholesalerPost.where.not(dealer_product_id: nil).where.not(approve_status: "rejected").select(:dealer_product_id))
           end
         end
 
@@ -117,6 +120,9 @@ module Api
             items = items.where(sell_in_b2b: true, sell_in_b2c: true)
           when "unlisted"
             items = items.where(sell_in_b2b: false, sell_in_b2c: false)
+          when "wholesale"
+            # Products the dealer has put up on the wholesaler feed (any post that was not rejected).
+            items = items.where(id: WholesalerPost.where.not(dealer_product_id: nil).where.not(approve_status: "rejected").select(:dealer_product_id))
           end
         end
 
@@ -793,7 +799,8 @@ module Api
     end
 
     def set_dealer_product
-      @dealer_product = DealerProduct.find_by(id: params[:id]) || DealerProduct.find_by(slug: params[:slug])
+      # dealer_products has no slug column; the previous slug fallback raised a 500 for unknown ids.
+      @dealer_product = DealerProduct.find_by(id: params[:id])
       render json: { error: "Dealer product not found" }, status: :not_found unless @dealer_product
     end
 
@@ -804,10 +811,6 @@ module Api
       current_dealer.id == @dealer_product.dealer_id
     end
 
-    # A dealer browsing another dealer's B2B-listed product (e.g. to place a B2B
-    # order against it) needs read access to that product even though they don't
-    # own it — but only once it's actually a live, approved, sellable listing, not
-    # a pending/rejected/inactive one that has no reason to be visible to them.
     def visible_to_non_owner?
       @dealer_product.is_active? && @dealer_product.approved? && (@dealer_product.sell_in_b2b? || @dealer_product.sell_in_b2c?)
     end
@@ -817,7 +820,9 @@ module Api
     end
 
     def get_admin_emails
-      AdminUser.where(is_super_admin: true).pluck(:email)
+      emails = AdminUser.where(status: "active", is_super_admin: true).pluck(:email)
+      emails << current_admin.email if respond_to?(:current_admin) && current_admin&.email.present?
+      emails.compact.map(&:strip).reject(&:blank?).uniq
     end
 
     def notify_admins_about_product_action(product_name, dealer_name, action, details = nil, changes = {})

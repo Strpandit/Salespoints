@@ -111,12 +111,17 @@ module Api
       }, status: :ok
     end
 
+    # Retail and B2B ids overlap: clients pass order_type (retail|b2b) to pick the right table.
+    # Without it (older app builds) the previous B2B-first lookup is kept.
     def show
       order_id = params[:id].to_i
+      order_type = params[:order_type].to_s
 
-      b2b_order = current_dealer.buyer_b2b_orders.find_by(id: order_id) ||
-                  current_dealer.seller_b2b_orders.find_by(id: order_id) ||
-                  B2bOrder.joins(:b2b_order_offers).where(b2b_order_offers: { dealer_id: current_dealer.id }).find_by(id: order_id)
+      b2b_order = unless order_type == "retail"
+                    current_dealer.buyer_b2b_orders.find_by(id: order_id) ||
+                      current_dealer.seller_b2b_orders.find_by(id: order_id) ||
+                      B2bOrder.joins(:b2b_order_offers).where(b2b_order_offers: { dealer_id: current_dealer.id }).find_by(id: order_id)
+                  end
 
       if b2b_order.present?
         source_tab = if b2b_order.buyer_dealer_id == current_dealer.id
@@ -132,9 +137,11 @@ module Api
         }, status: :ok
       end
 
-      retail_order = current_dealer.sales_orders.find_by(id: order_id) ||
-                     current_dealer.orders.find_by(id: order_id) ||
-                     Order.joins(:order_offers).where(order_offers: { dealer_id: current_dealer.id }).find_by(id: order_id)
+      retail_order = unless order_type == "b2b"
+                       current_dealer.sales_orders.find_by(id: order_id) ||
+                         current_dealer.orders.find_by(id: order_id) ||
+                         Order.joins(:order_offers).where(order_offers: { dealer_id: current_dealer.id }).find_by(id: order_id)
+                     end
 
       if retail_order.present?
         source_tab = retail_order.seller_dealer_id == current_dealer.id ? (retail_order.status == "pending" ? "incoming" : "accepted") : "outgoing"

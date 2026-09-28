@@ -122,23 +122,6 @@ class B2bOrderDealerResponseService
     raise StandardError, "Order already has a seller assigned" if order.seller_dealer_id.present?
   end
 
-  def deduct_b2c_stock!(item)
-    dealer_product = @dealer.dealer_products.find_by(
-      product_variant_id: item.product_variant_id,
-      is_active: true,
-      approve_status: "approved",
-      sell_in_b2c: true
-    )
-    
-    raise StandardError, "You don't have enough stock for this item" unless dealer_product
-    raise StandardError, "Insufficient stock" if dealer_product.stock_quantity < item.quantity
-
-    dealer_product.update!(
-      stock_quantity: dealer_product.stock_quantity - item.quantity
-    )
-    item.update!(dealer_product_id: dealer_product.id)
-  end
-
   def close_other_b2c_offers!(order)
     order.order_offers
          .where.not(id: @offer&.id || 0)
@@ -806,26 +789,31 @@ class B2bOrderDealerResponseService
     item
   end
 
+  # Row-locks the seller's listing so two orders accepted at once cannot oversell it, and
+  # records which listing fulfilled the item (used by settlements, returns and reviews).
   def deduct_b2c_stock!(item)
-    dealer_product = nil
-    if item.dealer_product_id.present?
-      dealer_product = DealerProduct.lock.find_by(id: item.dealer_product_id)
-    end
-    dealer_product ||= DealerProduct.lock.find_by(dealer_id: @dealer.id, product_variant_id: item.product_variant_id)
-
-    if dealer_product.present?
-      if item.product_variant_color_id.present?
-        dealer_product.deduct_color_stock!(item.product_variant_color_id, item.quantity)
-      else
-        if dealer_product.stock_quantity.to_i < item.quantity.to_i
-          raise StandardError, "Insufficient stock for dealer product #{dealer_product.id}"
-        end
-        dealer_product.update!(stock_quantity: dealer_product.stock_quantity - item.quantity)
+    dealer_product =
+      if item.dealer_product_id.present?
+        DealerProduct.lock.find_by(id: item.dealer_product_id, dealer_id: @dealer.id)
       end
+    dealer_product ||= DealerProduct.lock
+                                    .where(dealer_id: @dealer.id, product_variant_id: item.product_variant_id,
+                                           is_active: true, approve_status: "approved", sell_in_b2c: true)
+                                    .order(stock_quantity: :desc)
+                                    .first
+
+    raise StandardError, "You don't have this product listed for retail sale" unless dealer_product
+
+    if item.product_variant_color_id.present?
+      dealer_product.deduct_color_stock!(item.product_variant_color_id, item.quantity)
     else
-      raise StandardError, "Cannot deduct B2C stock: dealer product not found for item #{item.id}"
+      if dealer_product.stock_quantity.to_i < item.quantity.to_i
+        raise StandardError, "Insufficient stock for this item"
+      end
+      dealer_product.update!(stock_quantity: dealer_product.stock_quantity - item.quantity)
     end
 
+    item.update!(dealer_product_id: dealer_product.id) if item.dealer_product_id != dealer_product.id
     item
   end
 

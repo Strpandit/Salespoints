@@ -7,6 +7,7 @@ module Api
 
     def create
       requestable = current_requestable
+      return render json: { error: "Unauthorized" }, status: :forbidden unless requestable
 
       return render json: {
         error: "Super admin cannot request account deletion"
@@ -70,9 +71,9 @@ module Api
       account = @deletion_request.requestable
 
       ActiveRecord::Base.transaction do
-        account.update!(
-          deleted_by: current_admin
-        )
+        # Dealers/staff record who deleted them (customer accounts have no such column). Written
+        # directly so an unrelated validation on an old record can't block the deletion.
+        account.update_columns(deleted_by_id: current_admin.id) if account.has_attribute?(:deleted_by_id)
 
         account.destroy
 
@@ -111,6 +112,19 @@ module Api
       render json: {
         message: "Request rejected successfully"
       }
+    end
+
+    # DELETE /api/deletion_requests/cancel_pending — the signed-in user withdraws their own
+    # pending request (apps don't need to know the request id).
+    def cancel_pending
+      requestable = current_requestable
+      return render json: { error: "Unauthorized" }, status: :forbidden unless requestable
+
+      request_record = requestable.deletion_requests.pending.order(created_at: :desc).first
+      return render json: { error: "No pending deletion request found" }, status: :not_found unless request_record
+
+      request_record.destroy!
+      render json: { message: "Deletion request cancelled successfully" }
     end
 
     def cancel
@@ -156,14 +170,11 @@ module Api
       current_user
     end
 
+    # Customers (Account), dealers and staff can all ask for their account to be deleted.
     def current_requestable
-      case current_user_type
-      when "AdminUser"
+      case current_user_type.to_s.strip
+      when "AdminUser", "Dealer", "Account"
         current_user
-      when "Dealer"
-        current_user
-      else
-        nil
       end
     end
 
@@ -182,7 +193,8 @@ module Api
     end
 
     def serialize_request(request)
-      account = request.requestable
+      # After approval the account is soft-deleted, so the default association returns nil.
+      account = request.requestable || deleted_requestable(request)
 
       {
         id: request.id,
@@ -194,11 +206,20 @@ module Api
         reviewed_at: request.reviewed_at,
 
         account: {
-          id: account.id,
-          name: account.try(:full_name),
-          email: account.try(:email)
+          id: account&.id || request.requestable_id,
+          name: account.try(:full_name).presence || account.try(:email) || "Deleted account",
+          email: account.try(:email),
+          phone: account.try(:phone)
         }
       }
+    end
+
+    def deleted_requestable(request)
+      klass = request.requestable_type.safe_constantize
+      return nil unless klass
+
+      scope = klass.respond_to?(:with_deleted) ? klass.with_deleted : klass
+      scope.find_by(id: request.requestable_id)
     end
   end
 end

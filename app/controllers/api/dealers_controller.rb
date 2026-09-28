@@ -7,6 +7,7 @@ module Api
     before_action :require_super_admin!, only: [:bank_change_requests, :approve_bank_change, :reject_bank_change]
     before_action :set_dealer, only: [:show, :update, :destroy, :block, :unblock, :approve, :reject, :admin_overview, :verify_bank_account, :request_manual_bank_verification, :approve_manual_bank_account, :request_bank_change, :approve_bank_change, :reject_bank_change]
     before_action :authorize_dealer_update, only: [:update, :show, :verify_bank_account, :request_manual_bank_verification, :request_bank_change]
+    before_action :authorize_dealer_management, only: [:block, :unblock, :destroy]
 
     def check_signup_token
       dealer = find_signup_dealer
@@ -237,6 +238,7 @@ module Api
       end
 
       new_token = dealer.generate_signup_token!
+      clear_otp_verify_attempts!("dealer_signup", dealer.id)
       DealerAuthMailer.signup_otp(dealer).deliver_later
 
       render json: { message: "Signup OTP & Agreement sent successfully", token: new_token }
@@ -321,9 +323,11 @@ module Api
 
       profile_before = @dealer.dealer_profile&.attributes || {}
       location_before = @dealer.dealer_location&.attributes || {}
+      previous_status = @dealer.status
 
-      if @dealer.update(dealer_params)
+      if @dealer.update(permitted_dealer_update_params)
         is_dealer_user = current_user_type == "Dealer"
+        @dealer.revoke_tokens! if previous_status != @dealer.status && blocked_actor?(@dealer)
 
         if is_dealer_user
           dealer_changes = @dealer.saved_changes.except("updated_at", "created_at", "password_digest", "status")
@@ -372,6 +376,8 @@ module Api
           error: @dealer.errors.full_messages
         }, status: :unprocessable_entity
       end
+    rescue StandardError => e
+      render_error(e)
     end
 
     def verify_bank_account
@@ -599,14 +605,16 @@ module Api
       render_error(e)
     end
 
+    # update_columns: blocking must succeed even for legacy rows that fail newer validations.
     def block
-      @dealer.update(status: "banned")
+      @dealer.update_columns(status: "banned", updated_at: Time.current)
+      @dealer.revoke_tokens!
       notify_admins_entity_updated(@dealer)
       render json: { message: "Dealer blocked successfully" }, status: :ok
     end
 
     def unblock
-      @dealer.update(status: "active")
+      @dealer.update_columns(status: "active", updated_at: Time.current)
       notify_admins_entity_updated(@dealer)
       render json: { message: "Dealer unblocked successfully" }, status: :ok
     end
@@ -670,9 +678,15 @@ module Api
         return render json: { error: "This verification link has already been used or verified. Please log in.", verified_or_expired: true }, status: :unprocessable_entity
       end
 
+      if otp_verify_locked?("dealer_signup", dealer.id)
+        return render json: { error: "Too many attempts. Please request a new OTP." }, status: :too_many_requests
+      end
+
       unless dealer.otp_valid?(params[:otp].to_s)
+        record_failed_otp_attempt!("dealer_signup", dealer.id)
         return render json: { error: "Invalid or expired 6-digit OTP (10 min limit)." }, status: :unauthorized
       end
+      clear_otp_verify_attempts!("dealer_signup", dealer.id)
 
       temp_password = SecureRandom.hex(6)
       dealer.update!(password: temp_password, password_confirmation: temp_password)
@@ -808,17 +822,54 @@ module Api
       render json: { error: "Admin only" }, status: :unauthorized unless current_user_type == "AdminUser"
     end
 
+    # Dealers: only their own record. Admins: dealer must be inside their pincodes, plus
+    # write access to Dealers for changes, or read access to any dealer-facing module to view.
+    DEALER_VIEW_MODULES = %i[dealers dealer_products wholesaler_posts dealer_offers orders payouts payout_requests].freeze
+
     def authorize_dealer_update
-      # allow admin or the dealer themselves to view/update profile
-      return if current_user_type == "AdminUser"
-      if current_user_type == "Dealer" && current_user.id == @dealer.id
-        return
+      if current_dealer
+        return if current_dealer.id == @dealer.id
+        return render json: { error: "Unauthorized" }, status: :unauthorized
       end
-      render json: { error: "Unauthorized" }, status: :unauthorized
+      return render json: { error: "Unauthorized" }, status: :unauthorized unless current_admin
+      return render json: { error: "Access denied for this dealer's pincode" }, status: :forbidden unless dealer_accessible?(@dealer)
+
+      allowed =
+        if %w[show].include?(action_name)
+          DEALER_VIEW_MODULES.any? { |mod| current_admin.can_access?(mod, :read) }
+        else
+          current_admin.can_access?(:dealers, :write)
+        end
+      render json: { error: "You do not have permission to manage dealers" }, status: :forbidden unless allowed
+    end
+
+    def authorize_dealer_management
+      unless dealer_accessible?(@dealer) && current_admin.can_access?(:dealers, :write)
+        render json: { error: "You do not have permission to manage this dealer" }, status: :forbidden
+      end
+    end
+
+    # Status and verification flags are admin decisions; bank details only change through the
+    # verified bank flow (normalize_verified_bank_payload!), never as loose profile fields.
+    def permitted_dealer_update_params
+      attrs = dealer_params
+      return attrs unless current_dealer
+
+      attrs = attrs.except(:status)
+      profile = attrs[:dealer_profile_attributes]
+      if profile
+        profile.delete(:is_verified)
+        if profile[:bank_account_number].blank?
+          %i[bank_name ifsc_code account_holder_name].each { |key| profile.delete(key) }
+        end
+      end
+      attrs
     end
 
     def get_admin_emails
-      AdminUser.active.select { |admin| admin.approver_admin? && admin.email.present? }.map(&:email)
+      emails = AdminUser.active.select { |admin| admin.approver_admin? && admin.email.present? }.map(&:email)
+      emails << current_admin.email if respond_to?(:current_admin) && current_admin&.email.present?
+      emails.compact.map(&:strip).reject(&:blank?).uniq
     end
 
     def notify_admins_about_dealer_creation(dealer)
@@ -831,11 +882,11 @@ module Api
 
     def notify_admins_about_dealer_approval(dealer)
       approvers = AdminUser.where(status: "active")
-      approvers.find_each do |admin|
-        next if admin.email.blank?
-        next unless admin.approver_admin?
+      approver_emails = approvers.select { |admin| admin.approver_admin? && admin.email.present? }.map(&:email)
+      approver_emails << current_admin.email if respond_to?(:current_admin) && current_admin&.email.present?
 
-        DealerAuthMailer.onboarding_approval_request(dealer, admin.email).deliver_later
+      approver_emails.compact.map(&:strip).reject(&:blank?).uniq.each do |email|
+        DealerAuthMailer.onboarding_approval_request(dealer, email).deliver_later
       end
     end
 

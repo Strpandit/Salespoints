@@ -3,8 +3,8 @@ module Api
     before_action :authenticate_request!
     before_action :require_admin, only: [:index, :block, :unblock]
     before_action :check_permission, only: [:index, :block, :unblock]
-    before_action :set_account, only: [:show, :update, :destroy, :block, :unblock, :request_deletion, :cancel_deletion_request]
-    before_action :authorize_account!, only: [:show, :update, :request_deletion, :cancel_deletion_request]
+    before_action :set_account, only: [:show, :update, :destroy, :block, :unblock]
+    before_action :authorize_account!, only: [:show, :update]
 
     def index
       @accounts = Account.all
@@ -89,56 +89,9 @@ module Api
       }, status: :forbidden
     end
 
-    def request_deletion
-      unless params[:password].present?
-        return render json: { message: "Password is required" }, status: :unprocessable_entity
-      end
-
-      unless @account.authenticate(params[:password])
-        return render json: { message: "Incorrect password" }, status: :unauthorized
-      end
-
-      if @account.account_deletion_requests.pending.exists?
-        return render json: { message: "A deletion request is already pending review" }, status: :unprocessable_entity
-      end
-
-      req = @account.account_deletion_requests.create!(
-        status: "pending",
-        reason: params[:reason].to_s.presence,
-        requested_at: Time.current,
-        password_verified_at: Time.current
-      )
-
-      AdminUser.find_each do |admin|
-        next unless admin.can_access?(:accounts, :read)
-
-        NotificationService.deliver(
-          recipient: admin,
-          actor: @account,
-          notifiable: req,
-          kind: "account_deletion_requested",
-          title: "Account deletion requested",
-          message: "#{@account.full_name.presence || 'Customer'} (#{@account.email}) requested account deletion.",
-          payload: { account_deletion_request_id: req.id, account_id: @account.id }
-        )
-      end
-
-      render json: {
-        message: "Deletion request submitted. An administrator will review it.",
-        data: { pending_deletion_request: true }
-      }, status: :ok
-    end
-
-    def cancel_deletion_request
-      req = @account.account_deletion_requests.pending.order(created_at: :desc).first
-      return render json: { message: "No pending deletion request" }, status: :not_found unless req
-
-      req.destroy!
-      render json: { message: "Deletion request cancelled", data: { pending_deletion_request: false } }, status: :ok
-    end
-
     def block
       @account.update!(status: 'banned')
+      @account.revoke_tokens!
       
       # Send account blocked email
       AccountMailer.account_blocked(@account).deliver_later if @account.email.present?
@@ -182,8 +135,11 @@ module Api
       end
     end
 
+    # Customers edit their own profile here. `status` (active/banned…) and `google_signup` are
+    # server-controlled — status only changes via OTP activation or admin block/unblock —
+    # so they are never accepted from this endpoint.
     def account_params
-      params.require(:account).permit(:first_name, :last_name, :email, :phone, :country_code, :gender, :status, :password, :password_confirmation, :google_signup)
+      params.require(:account).permit(:first_name, :last_name, :email, :phone, :country_code, :gender, :password, :password_confirmation)
     end
 
     def check_permission

@@ -3,6 +3,8 @@ module Api
     before_action :require_admin!, only: [:pending, :approve, :reject]
 
     def index
+      stats_scope = nil
+      admin_scope = nil
       posts = WholesalerPost.includes(
         :media_attachments,
         dealer: :dealer_profile,
@@ -21,6 +23,12 @@ module Api
           now: Time.current,
           dealer_pincode: dealer_pincode
         )
+        stats_scope = posts
+        # Optional feed tab: "mine" = my own posts, "others" = everyone else's (old clients send nothing).
+        case params[:feed]
+        when "mine" then posts = posts.where(dealer_id: current_dealer.id)
+        when "others" then posts = posts.where.not(dealer_id: current_dealer.id)
+        end
       elsif current_admin.present?
         if params[:dealer_id].present?
           unless current_admin.can_access?(:dealers, :read)
@@ -31,13 +39,12 @@ module Api
           return render json: { error: "Dealer not found or access denied" }, status: :forbidden unless target_dealer
 
           posts = posts.where(dealer_id: target_dealer.id)
-          posts = posts.where(approve_status: params[:status]) if params[:status].present? && params[:status] != "all"
-          posts = posts.where(approve_status: params[:approve_status]) if params[:approve_status].present? && params[:approve_status] != "all"
         else
           posts = current_admin.accessible_wholesale_posts(posts)
-          posts = posts.where(approve_status: params[:status]) if params[:status].present? && params[:status] != "all"
-          posts = posts.where(approve_status: params[:approve_status]) if params[:approve_status].present? && params[:approve_status] != "all"
         end
+        admin_scope = posts
+        posts = apply_admin_status_filter(posts, params[:status])
+        posts = apply_admin_status_filter(posts, params[:approve_status])
       else
         posts = posts.where(approve_status: "approved").visible_to_marketplace
       end
@@ -79,7 +86,8 @@ module Api
         posts = posts.order("wholesaler_posts.created_at DESC")
       end
 
-      paginated = Kaminari.paginate_array(posts.to_a).page(params[:page]).per(params[:per_page] || 20)
+      per_page = (params[:per_page] || 20).to_i.clamp(1, 100)
+      paginated = posts.page(params[:page]).per(per_page)
 
       current_ratings = {}
       if current_dealer.present? && paginated.any?
@@ -96,8 +104,9 @@ module Api
           next_page: paginated.next_page,
           prev_page: paginated.prev_page,
           total_pages: paginated.total_pages,
-          total_count: paginated.total_count
-        }
+          total_count: paginated.total_count,
+          stats: feed_stats(stats_scope, admin_scope)
+        }.compact
       }, status: :ok
     end
 
@@ -422,6 +431,37 @@ module Api
     end
 
     private
+
+    # "expired" isn't an approve_status; it means the live window has closed.
+    def apply_admin_status_filter(scope, status)
+      return scope if status.blank? || status == "all"
+      return scope.live_window_closed if status == "expired"
+
+      scope.where(approve_status: status)
+    end
+
+    # Header numbers for the whole feed (not just the current page).
+    def feed_stats(dealer_scope, admin_scope)
+      if dealer_scope
+        base = WholesalerPost.where(id: dealer_scope.except(:order, :includes, :preload, :eager_load).reselect(:id))
+        {
+          total: base.count,
+          mine: base.where(dealer_id: current_dealer.id).count,
+          others: base.where.not(dealer_id: current_dealer.id).count,
+          linked: base.where.not(dealer_product_id: nil).count,
+          average_rating: base.average(:rating).to_f.round(1)
+        }
+      elsif admin_scope
+        base = WholesalerPost.where(id: admin_scope.except(:order, :includes, :preload, :eager_load).reselect(:id))
+        {
+          all: base.count,
+          pending: base.where(approve_status: "pending").count,
+          approved: base.where(approve_status: "approved").count,
+          rejected: base.where(approve_status: "rejected").count,
+          expired: base.live_window_closed.count
+        }
+      end
+    end
 
     def require_admin!
       return if current_user_type == "AdminUser"

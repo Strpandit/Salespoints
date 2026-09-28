@@ -1,8 +1,19 @@
 module Api
   class ProductsController < ApplicationController
-    skip_before_action :authenticate_request!, only: [:index, :active_products, :show, :similar_product]
-    before_action :require_admin, except: [:index, :active_products, :show, :similar_product]
-    before_action :check_permission, except: [:index, :active_products, :show, :similar_product]
+    PUBLIC_ACTIONS = %i[index active_products active_product_facets show similar_product].freeze
+
+    skip_before_action :authenticate_request!, only: PUBLIC_ACTIONS
+    before_action :require_admin, except: PUBLIC_ACTIONS
+    before_action :check_permission, except: PUBLIC_ACTIONS
+
+    # Displayed retail price = cheapest live variant, falling back to the product-level price.
+    STOREFRONT_PRICE_SQL = <<~SQL.squish.freeze
+      COALESCE((SELECT MIN(pv.selling_price) FROM product_variants pv
+                WHERE pv.product_id = products.id AND pv.deleted_at IS NULL AND pv.is_active = TRUE),
+               products.selling_price)
+    SQL
+    RATING_SQL = "(SELECT COALESCE(AVG(r.rating), 0) FROM reviews r WHERE r.product_id = products.id)".freeze
+    REVIEW_COUNT_SQL = "(SELECT COUNT(*) FROM reviews r WHERE r.product_id = products.id)".freeze
     before_action :find_product, only: [:show, :update, :destroy]
 
     def index
@@ -54,20 +65,13 @@ module Api
 
     def active_products
       products = Product.active.includes(:category, :brand, :product_variants)
-
-      if params[:category_id].present?
-        products = products.where(category_id: params[:category_id])
-      end
-
-      if params[:search].present?
-        query = params[:search].strip
-        products = products.where("products.name ILIKE ?", "%#{query}%")
-      end
-
+      products = apply_storefront_filters(products)
       products = apply_active_product_sort(products, params[:sort])
-      products = products.page(params[:page]).per(params[:per_page] || 20)
+      per_page = (params[:per_page] || 20).to_i.clamp(1, 100)
+      products = products.page(params[:page]).per(per_page)
+      ratings = rating_stats_for(products.map(&:id))
 
-      render json: serialize_resource(products, ProductSerializer, base_url: request.base_url).merge(
+      render json: serialize_resource(products, ProductSerializer, base_url: request.base_url, ratings: ratings).merge(
         meta: {
           current_page: products.current_page,
           next_page: products.next_page,
@@ -77,6 +81,33 @@ module Api
         },
         message: "Products fetched successfully"
       ), status: :ok
+    end
+
+    # GET /api/active_products/facets - filter options (brands, specs, price range) across the
+    # whole matching catalog, not just one page. Brand/spec/price/rating selections are ignored
+    # on purpose, so picking one brand doesn't hide the other brands from the list.
+    def active_product_facets
+      scope = apply_storefront_filters(Product.active, skip: %i[brands specs min_price max_price min_rating])
+      ids = scope.pluck(:id)
+
+      brands = Brand.joins(:products).where(products: { id: ids })
+                    .group("brands.name").order("brands.name").count
+      specs = ProductSpecification.where(product_id: ids)
+                                  .where.not(key: [nil, ""]).where.not(value: [nil, ""])
+                                  .distinct.pluck(:key, :value)
+                                  .group_by { |k, _| k.strip }
+                                  .transform_values { |pairs| pairs.map { |_, v| v.strip }.uniq.sort }
+                                  .select { |_, values| values.size.between?(2, 12) && values.all? { |v| v.length <= 25 } }
+      prices = ids.any? ? Product.where(id: ids).pluck(Arel.sql(STOREFRONT_PRICE_SQL)).compact.map(&:to_f) : []
+
+      render json: {
+        data: {
+          brands: brands.map { |name, count| { name: name, count: count } },
+          specs: specs.sort.to_h,
+          price_range: { min: prices.min, max: prices.max },
+          total_count: ids.size
+        }
+      }, status: :ok
     end
 
     def show
@@ -240,6 +271,82 @@ module Api
       "#{name_clean}-DEFAULT"
     end
 
+    # All storefront filters are opt-in: a missing param leaves the list unchanged, so older
+    # web/app builds that never sent them behave exactly as before.
+    def apply_storefront_filters(scope, skip: [])
+      category_ids = params[:category_id].to_s.split(",").map(&:strip).reject(&:blank?)
+      scope = scope.where(category_id: category_ids) if category_ids.any?
+
+      if params[:category_slug].present? && category_ids.empty?
+        scope = scope.where(category_id: Category.where(slug: params[:category_slug]).select(:id))
+      end
+
+      if params[:search].present?
+        q = "%#{ActiveRecord::Base.sanitize_sql_like(params[:search].strip)}%"
+        scope = scope.where(
+          "products.name ILIKE :q OR products.brand_id IN (SELECT id FROM brands WHERE name ILIKE :q) " \
+          "OR products.category_id IN (SELECT id FROM categories WHERE name ILIKE :q) " \
+          "OR products.id IN (SELECT product_id FROM product_variants WHERE variant_sku ILIKE :q AND deleted_at IS NULL)",
+          q: q
+        )
+      end
+
+      unless skip.include?(:brands)
+        brand_names = params[:brands].to_s.split(",").map { |b| b.strip.downcase }.reject(&:blank?)
+        scope = scope.where("products.brand_id IN (SELECT id FROM brands WHERE LOWER(name) IN (?))", brand_names) if brand_names.any?
+      end
+
+      if !skip.include?(:min_price) && params[:min_price].present?
+        scope = scope.where("#{STOREFRONT_PRICE_SQL} >= ?", params[:min_price].to_f)
+      end
+      if !skip.include?(:max_price) && params[:max_price].present?
+        scope = scope.where("#{STOREFRONT_PRICE_SQL} <= ?", params[:max_price].to_f)
+      end
+      if !skip.include?(:min_rating) && params[:min_rating].to_f.positive?
+        scope = scope.where("#{RATING_SQL} >= ?", params[:min_rating].to_f)
+      end
+
+      scope = apply_spec_filters(scope) unless skip.include?(:specs)
+      scope
+    end
+
+    # specs = JSON {"RAM": ["8 GB", "12 GB"], "Storage": ["256 GB"]} -> must match every key.
+    def apply_spec_filters(scope)
+      raw = params[:specs]
+      return scope if raw.blank?
+
+      specs =
+        if raw.is_a?(String)
+          JSON.parse(raw) rescue {}
+        elsif raw.respond_to?(:to_unsafe_h)
+          raw.to_unsafe_h
+        else
+          {}
+        end
+      return scope unless specs.is_a?(Hash)
+
+      specs.each do |key, values|
+        values = Array(values).map { |v| v.to_s.strip }.reject(&:blank?)
+        next if key.to_s.strip.blank? || values.empty?
+
+        scope = scope.where(
+          "EXISTS (SELECT 1 FROM product_specifications ps WHERE ps.product_id = products.id " \
+          "AND LOWER(TRIM(ps.key)) = LOWER(?) AND TRIM(ps.value) IN (?))",
+          key.to_s.strip, values
+        )
+      end
+      scope
+    end
+
+    # { product_id => { average: 4.3, count: 12 } } in one query, so listings don't N+1.
+    def rating_stats_for(product_ids)
+      return {} if product_ids.blank?
+
+      Review.where(product_id: product_ids).group(:product_id)
+            .pluck(:product_id, Arel.sql("AVG(rating)"), Arel.sql("COUNT(*)"))
+            .to_h { |id, avg, count| [id, { average: avg.to_f.round(1), count: count.to_i }] }
+    end
+
     def apply_active_product_sort(scope, sort)
       case sort
       when "price_asc"
@@ -250,6 +357,12 @@ module Api
         scope.left_joins(:product_variants)
              .group("products.id")
              .order(Arel.sql("MIN(product_variants.selling_price) DESC NULLS LAST"))
+      when "a_to_z"
+        scope.order(Arel.sql("LOWER(products.name) ASC"))
+      when "z_to_a"
+        scope.order(Arel.sql("LOWER(products.name) DESC"))
+      when "popularity"
+        scope.order(Arel.sql("#{REVIEW_COUNT_SQL} DESC, #{RATING_SQL} DESC, products.created_at DESC"))
       else
         scope.order(created_at: :desc)
       end
@@ -387,7 +500,9 @@ module Api
 
     ### notification helpers
     def get_admin_emails
-      AdminUser.where(is_super_admin: true).pluck(:email)
+      emails = AdminUser.where(status: "active", is_super_admin: true).pluck(:email)
+      emails << current_admin.email if respond_to?(:current_admin) && current_admin&.email.present?
+      emails.compact.map(&:strip).reject(&:blank?).uniq
     end
 
     def compute_product_changes(old_attrs, old_brand_name, old_category_name, old_variants, old_specs, old_media_count)

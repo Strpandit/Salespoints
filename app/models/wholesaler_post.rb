@@ -16,7 +16,7 @@ class WholesalerPost < ApplicationRecord
   validates :stock_quantity, numericality: { greater_than_or_equal_to: 0 }
   validates :rating, numericality: { greater_than_or_equal_to: 0, less_than_or_equal_to: 5 }, allow_nil: true
   validates :rating_count, numericality: { greater_than_or_equal_to: 0 }, allow_nil: true
-  validates :min_order_quantity, numericality: { only_integer: true, greater_than_or_equal_to: 2, message: "must be a whole number of at least 2" }
+  validates :min_order_quantity, numericality: { only_integer: true, greater_than_or_equal_to: 1, message: "must be a whole number of at least 1" }
   validate :min_order_quantity_within_stock, if: :listing_edit
   validate :media_files_valid
   validate :validate_pincodes_format
@@ -70,7 +70,7 @@ class WholesalerPost < ApplicationRecord
   end
 
   def effective_min_order_quantity
-    moq = [ min_order_quantity.to_i, 2 ].max
+    moq = [ min_order_quantity.to_i, 1 ].max
     stock = stock_quantity.to_i
     stock.positive? && stock < moq ? stock : moq
   end

@@ -21,8 +21,6 @@ module Api
 
         if params[:action_name].present? && params[:action_name] != "all"
           logs = logs.by_action(params[:action_name])
-        elsif params[:action].present? && params[:action] != "all"
-          logs = logs.by_action(params[:action])
         end
 
         if params[:platform].present? && params[:platform] != "all"
@@ -38,7 +36,7 @@ module Api
         end
 
         page = (params[:page] || 1).to_i
-        per_page = (params[:per_page] || 25).to_i
+        per_page = (params[:per_page] || 25).to_i.clamp(1, 100)
 
         paginated = logs.page(page).per(per_page)
 
@@ -141,22 +139,26 @@ module Api
         scope = AdminUser.includes(:roles).order(created_at: :desc)
         if search.present?
           term = "%#{search}%"
-          scope = scope.where("name ILIKE :term OR email ILIKE :term", term: term)
+          scope = scope.where(
+            "admin_users.first_name ILIKE :term OR admin_users.last_name ILIKE :term OR admin_users.email ILIKE :term OR admin_users.phone ILIKE :term OR CONCAT_WS(' ', admin_users.first_name, admin_users.last_name) ILIKE :term",
+            term: term
+          )
         end
 
         counts = ActivityLog.for_staff.group(:actor_id).count
         last_activities = ActivityLog.for_staff.group(:actor_id).maximum(:created_at)
 
         scope.limit(100).map do |u|
-          role_label = u.super_admin? ? "Super Admin" : (u.roles.pluck(:name).join(", ").presence || "Staff")
+          role_label = u.super_admin? ? "Super Admin" : (u.roles.map(&:name).join(", ").presence || "Staff")
           {
             id: u.id,
             actor_type: "AdminUser",
-            name: u.name.presence || u.email,
+            name: u.full_name.presence || u.email,
             email: u.email,
+            phone: u.phone,
             role: role_label,
             is_super_admin: u.super_admin?,
-            status: u.is_active ? "active" : "inactive",
+            status: u.deleted_at.present? ? "deleted" : u.status,
             total_activities: counts[u.id] || 0,
             last_activity_at: last_activities[u.id]
           }

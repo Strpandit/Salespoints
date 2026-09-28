@@ -135,24 +135,18 @@ module Api
         }, status: :ok
       end
 
+      # Retail (orders) and B2B (b2b_orders) ids overlap, so callers pass order_type to pick the table.
       def show
-        order = Order.includes(:buyer, :seller_dealer, order_items: { product_variant: :product })
-                     .find_by(id: params[:id])
-        
-        if order.present?
-          return render json: {
-            data: transform_retail_order(order)
-          }, status: :ok
+        unless requested_order_type == "b2b"
+          order = Order.includes(:buyer, :seller_dealer, order_items: { product_variant: :product })
+                       .find_by(id: params[:id])
+          return render json: { data: transform_retail_order(order) }, status: :ok if order.present?
         end
 
-        # Try B2B
-        b2b_order = B2bOrder.includes(:buyer_dealer, :seller_dealer, b2b_order_items: { product_variant: :product })
-                             .find_by(id: params[:id])
-        
-        if b2b_order.present?
-          return render json: {
-            data: transform_b2b_order(b2b_order)
-          }, status: :ok
+        unless requested_order_type == "retail"
+          b2b_order = B2bOrder.includes(:buyer_dealer, :seller_dealer, b2b_order_items: { product_variant: :product })
+                              .find_by(id: params[:id])
+          return render json: { data: transform_b2b_order(b2b_order) }, status: :ok if b2b_order.present?
         end
 
         render json: { error: "Order not found" }, status: :not_found
@@ -161,10 +155,12 @@ module Api
       def download_invoice
         begin
           return render json: { error: "Unauthorized" }, status: :unauthorized unless current_admin.present?
-          order = Order.find_by(id: params[:id])
-          order ||= B2bOrder.find_by(id: params[:id])
-          # order = Order.includes(:buyer, :seller_dealer, order_items: { product_variant: :product }).find_by(id: params[:id])
-          # order ||= B2bOrder.includes(:buyer_dealer, :seller_dealer, b2b_order_items: { product_variant: :product }).find_by(id: params[:id])
+          order =
+            case requested_order_type
+            when "retail" then Order.find_by(id: params[:id])
+            when "b2b" then B2bOrder.find_by(id: params[:id])
+            else Order.find_by(id: params[:id]) || B2bOrder.find_by(id: params[:id])
+            end
 
           return render json: { error: "Order not found" }, status: :not_found unless order
           unless %w[delivered replacement_requested replacement_approved replacement_shipped replacement_delivered].include?(order.status)
@@ -184,6 +180,12 @@ module Api
       end
 
       private
+
+      # nil when an older client did not send it (then the legacy retail-first lookup applies).
+      def requested_order_type
+        type = params[:order_type].to_s
+        %w[retail b2b].include?(type) ? type : nil
+      end
 
       def transform_retail_order(order)
         {
@@ -403,7 +405,11 @@ module Api
 
       def require_admin!
         unless current_admin.present?
-          render json: { error: "Unauthorized. Admin access required." }, status: :unauthorized
+          return render json: { error: "Unauthorized. Admin access required." }, status: :unauthorized
+        end
+
+        unless current_admin.can_access?(:orders, :read)
+          render json: { error: "You do not have permission to view orders" }, status: :forbidden
         end
       end
     end

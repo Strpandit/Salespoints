@@ -1,5 +1,6 @@
 class Dealer < ApplicationRecord
   include CrossActorUniqueness
+  include TokenRevocable
   has_secure_password validations: false
   acts_as_paranoid
 
@@ -13,7 +14,8 @@ class Dealer < ApplicationRecord
   has_many :seller_b2b_orders, class_name: "B2bOrder", foreign_key: :seller_dealer_id, dependent: :nullify
   has_many :b2b_order_offers, dependent: :destroy
   has_many :notifications, as: :receiver, dependent: :destroy
-  has_many :deletion_requests, as: :requestable, dependent: :destroy
+  # Kept after the account is (soft) deleted so admins keep the approval history.
+  has_many :deletion_requests, as: :requestable
   has_many :push_subscriptions, as: :subscriber, dependent: :destroy
   has_many :report_audit_logs, as: :user, dependent: :destroy
   has_many :products, through: :dealer_products
@@ -32,7 +34,6 @@ class Dealer < ApplicationRecord
 
   has_many :order_broadcast_trackers, dependent: :destroy
   has_many :order_offers, dependent: :destroy
-  has_many :sales_orders, class_name: "Order", foreign_key: :seller_dealer_id, dependent: :nullify
   has_many :purchase_orders, class_name: 'Order', as: :buyer
 
   accepts_nested_attributes_for :dealer_profile, reject_if: :all_blank
@@ -72,7 +73,7 @@ class Dealer < ApplicationRecord
 
   def generate_signup_token!
     token = SecureRandom.hex(20)
-    pin = rand(100000..999999).to_s
+    pin = SecureRandom.random_number(100000..999999).to_s
     now = Time.current
     update!(
       signup_token: token,
@@ -84,7 +85,8 @@ class Dealer < ApplicationRecord
   end
 
   def otp_valid?(otp)
-    otp_pin.present? && otp_pin.to_s == otp.to_s && otp_sent_at.present? && otp_sent_at > 10.minutes.ago
+    otp_pin.present? && otp_sent_at.present? && otp_sent_at > 10.minutes.ago &&
+      ActiveSupport::SecurityUtils.secure_compare(otp_pin.to_s, otp.to_s.strip)
   end
 
   def token_valid?(token)
@@ -173,14 +175,12 @@ class Dealer < ApplicationRecord
   end
 
   def deactivate_associated_records
-    dealer_products.update_all(
-      is_active: false,
-      approve_status: 'inactive'
-    )
+    # approve_status is an enum without an "inactive" value (writing it stored NULL);
+    # deactivating is enough to take the products off sale.
+    dealer_products.update_all(is_active: false, updated_at: Time.current)
     
-    wholesaler_posts.update_all(
-      is_active: false,
-      approve_status: 'rejected'
-    )
+    # wholesaler_posts has no is_active column (writing it aborted every dealer deletion);
+    # rejecting the posts is what hides them from the marketplace.
+    wholesaler_posts.update_all(approve_status: 'rejected', updated_at: Time.current)
   end
 end

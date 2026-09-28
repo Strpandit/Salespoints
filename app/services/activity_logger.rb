@@ -1,4 +1,8 @@
 class ActivityLogger
+  # Set on the Rack env once a request has been logged explicitly, so ActivityTrackable
+  # doesn't write a second, generic entry for the same request.
+  REQUEST_FLAG = "salespoints.activity_logged".freeze
+
   class << self
     def log(actor:, action:, category:, target: nil, target_title: nil, description: nil, metadata: {}, request: nil, platform: nil)
       return if actor.blank?
@@ -8,8 +12,13 @@ class ActivityLogger
 
       resolved_platform = platform.presence || request_info[:platform] || "web"
       resolved_target_title = target_title.presence || resolve_target_title(target)
+      metadata = (metadata || {}).to_h.stringify_keys
+      if target.present? && !metadata.key?("changes") && !target.try(:previously_new_record?)
+        changes = ActivityChangeSet.from(target)
+        metadata["changes"] = changes if changes.present?
+      end
 
-      ActivityLog.create!(
+      log = ActivityLog.create!(
         actor_type: actor.class.name,
         actor_id: actor.id,
         actor_name: actor_info[:name],
@@ -24,8 +33,10 @@ class ActivityLogger
         ip_address: request_info[:ip_address],
         user_agent: request_info[:user_agent],
         platform: resolved_platform,
-        metadata: (metadata || {}).as_json
+        metadata: metadata.as_json
       )
+      request.env[REQUEST_FLAG] = true if request.respond_to?(:env)
+      log
     rescue StandardError => e
       Rails.logger.error("[ActivityLogger] Error logging activity: #{e.message}\n#{e.backtrace&.first(3)&.join("\n")}")
       nil
@@ -108,7 +119,7 @@ class ActivityLogger
           role: "dealer"
         }
       when AdminUser
-        name = actor.name.presence || actor.email
+        name = actor.full_name.presence || actor.email
         role = actor.super_admin? ? "super_admin" : (actor.roles.pluck(:name).join(", ").presence || "staff")
         {
           name: name,

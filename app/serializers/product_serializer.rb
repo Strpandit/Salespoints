@@ -3,7 +3,8 @@ class ProductSerializer < ApplicationSerializer
   attributes :name, :slug, :desc, :material, :features, :care_instructions,
              :is_featured, :is_new, :is_active, :tax_rate, :deleted_at, :specifications, 
              :media, :price, :selling_price, :dealer_price, :dealer_selling_price, :discount_percentage,
-             :price_source, :tax_inclusive, :hsn_code, :desc_blocks, :product_specifications, :colors
+             :price_source, :tax_inclusive, :hsn_code, :desc_blocks, :product_specifications, :colors,
+             :average_rating, :review_count
 
   belongs_to :category
   belongs_to :brand
@@ -32,6 +33,22 @@ class ProductSerializer < ApplicationSerializer
 
   def tax_inclusive
     true
+  end
+
+  # Filled only by listings that pre-compute ratings in one query (ProductsController#rating_stats_for);
+  # other endpoints return nil instead of firing one query per product.
+  def average_rating
+    ratings = options[:ratings]
+    return nil unless ratings
+
+    ratings.dig(object.id, :average) || 0.0
+  end
+
+  def review_count
+    ratings = options[:ratings]
+    return nil unless ratings
+
+    ratings.dig(object.id, :count) || 0
   end
 
   def colors

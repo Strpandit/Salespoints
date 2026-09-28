@@ -1,6 +1,7 @@
 module Api
   class AddressesController < ApplicationController
     before_action :authenticate_request!
+    before_action :require_customer!
     before_action :set_address, only: [:show, :update, :destroy]
     before_action :authorize_address!, only: [:show, :update, :destroy]
 
@@ -55,8 +56,13 @@ module Api
 
     private
 
+    def require_customer!
+      render json: { error: "Only customers can manage these addresses" }, status: :forbidden unless current_account
+    end
+
     def set_address
-      @address = Address.find(params[:id])
+      @address = Address.find_by(id: params[:id])
+      render json: { error: "Address not found" }, status: :not_found unless @address
     end
 
     def authorize_address!

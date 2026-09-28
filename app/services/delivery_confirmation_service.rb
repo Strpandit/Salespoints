@@ -170,7 +170,7 @@ class DeliveryConfirmationService
   end
 
   def generated_otp
-    rand(100000..999999).to_s
+    SecureRandom.random_number(100000..999999).to_s
   end
 
   def mark_delivered!(confirmation: nil)

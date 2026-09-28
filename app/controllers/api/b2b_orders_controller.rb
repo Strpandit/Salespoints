@@ -118,6 +118,7 @@ module Api
 
     def accept
       order = find_order(params[:id])
+      return render_ambiguous_order if order == :ambiguous
       return render json: { error: "Request not found or already processed" }, status: :not_found unless order
 
       unless acceptable_order?(order)
@@ -139,6 +140,7 @@ module Api
 
     def reject
       order = find_order(params[:id])
+      return render_ambiguous_order if order == :ambiguous
       return render json: { error: "Request not found or already processed" }, status: :not_found unless order
 
       unless acceptable_order?(order)
@@ -161,14 +163,14 @@ module Api
     def download_invoice
       return render json: { error: "Unauthorized" }, status: :unauthorized unless current_dealer.present? || current_admin.present?
 
+      # B2B invoices only: retail invoices come from orders/:id/download_invoice. Falling back to the
+      # orders table here could return a different retail order that happens to share this id.
       order =
         if current_admin
-          B2bOrder.find_by(id: params[:id]) || Order.find_by(id: params[:id])
+          B2bOrder.find_by(id: params[:id])
         else
           current_dealer.buyer_b2b_orders.find_by(id: params[:id]) ||
-          current_dealer.seller_b2b_orders.find_by(id: params[:id]) ||
-          current_dealer.sales_orders.find_by(id: params[:id]) ||
-          current_dealer.orders.find_by(id: params[:id])
+          current_dealer.seller_b2b_orders.find_by(id: params[:id])
         end
 
       return render json: { error: "Order not found" }, status: :not_found unless order
@@ -248,7 +250,7 @@ module Api
     end
 
     def update_status
-      order = find_seller_order(params[:id])
+      # B2B only; retail orders are updated through PATCH orders/:id.
       order = current_dealer.seller_b2b_orders.includes(:delivery_confirmation).find_by(id: params[:id])
       return render json: { error: "Order not found" }, status: :not_found unless order
 
@@ -343,25 +345,37 @@ module Api
       end
     end
 
+    # Retail and B2B ids overlap, so the client says which one it means (order_type=retail|b2b).
+    # Older clients don't send it: then only a request this dealer can actually act on counts, and if
+    # both a retail and a B2B request share the id we refuse instead of guessing.
     def find_order(id)
-      b2b_order = current_dealer.seller_b2b_orders.find_by(id: id) ||
-                  B2bOrder.joins(:b2b_order_offers)
-                          .where(b2b_order_offers: { dealer_id: current_dealer.id, status: "open" })
-                          .find_by(id: id)
-      return b2b_order if b2b_order.present?
+      type = params[:order_type].to_s
+      b2b_order = find_b2b_request(id) unless type == "retail"
+      retail_order = find_retail_request(id) unless type == "b2b"
+      return b2b_order || retail_order if %w[retail b2b].include?(type)
 
-      retail_order = current_dealer.sales_orders.find_by(id: id) ||
-                     Order.joins(:order_offers)
-                          .where(order_offers: { dealer_id: current_dealer.id, status: "open" })
-                          .find_by(id: id)
-      return retail_order if retail_order.present?
-      
-      nil
+      actionable = [b2b_order, retail_order].compact.select { |order| acceptable_order?(order) }
+      return :ambiguous if actionable.size > 1
+
+      actionable.first || b2b_order || retail_order
     end
 
-    def find_seller_order(id)
+    def find_b2b_request(id)
       current_dealer.seller_b2b_orders.find_by(id: id) ||
-      current_dealer.seller_orders.find_by(id: id)
+        B2bOrder.joins(:b2b_order_offers)
+                .where(b2b_order_offers: { dealer_id: current_dealer.id, status: "open" })
+                .find_by(id: id)
+    end
+
+    def find_retail_request(id)
+      current_dealer.sales_orders.find_by(id: id) ||
+        Order.joins(:order_offers)
+             .where(order_offers: { dealer_id: current_dealer.id, status: "open" })
+             .find_by(id: id)
+    end
+
+    def render_ambiguous_order
+      render json: { error: "Please refresh the orders list and try again." }, status: :conflict
     end
 
     def acceptable_order?(order)

@@ -1,16 +1,23 @@
 # Be sure to restart your server when you modify this file.
 
-# Avoid CORS issues when API is called from the frontend app.
-# Handle Cross-Origin Resource Sharing (CORS) in order to accept cross-origin Ajax requests.
+# Browsers may only call the API from these origins. Native mobile apps are not subject to CORS.
+PRODUCTION_ORIGINS = [
+  "https://salespoints.netlify.app",
+  "https://salespoints.in",
+  "https://www.salespoints.in"
+].freeze
 
-# Read more: https://github.com/cyu/rack-cors
+# Local web (Vite) and Expo web dev servers; never allowed in production.
+DEVELOPMENT_ORIGINS = [
+  %r{\Ahttp://(localhost|127\.0\.0\.1)(:\d+)?\z}
+].freeze
+
+# Extra origins (e.g. a staging site) can be added without a code change: CORS_EXTRA_ORIGINS=https://a.com,https://b.com
+EXTRA_ORIGINS = ENV.fetch("CORS_EXTRA_ORIGINS", "").split(",").map(&:strip).reject(&:empty?).freeze
 
 Rails.application.config.middleware.insert_before 0, Rack::Cors do
   allow do
-    # origins 'http://localhost:5173'
-    origins 'https://salespoints.netlify.app',
-            'https://salespoints.in',
-            'https://www.salespoints.in'
+    origins(*PRODUCTION_ORIGINS, *EXTRA_ORIGINS, *(Rails.env.production? ? [] : DEVELOPMENT_ORIGINS))
 
     resource "*",
       headers: :any,

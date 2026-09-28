@@ -144,12 +144,16 @@ Rails.application.routes.draw do
       resources :reviews, only: [:index, :create]
     end
     get "active_products", to: "products#active_products"
+    get "active_products/facets", to: "products#active_product_facets"
 
     #Reviews
     resources :reviews
 
     #Deletion Requests
     resources :deletion_requests, only: [:create, :index] do
+      collection do
+        delete :cancel_pending
+      end
       member do
         patch :approve
         patch :reject

@@ -1,5 +1,6 @@
 class AdminUser < ApplicationRecord
   include CrossActorUniqueness
+  include TokenRevocable
   has_secure_password validations: false
   acts_as_paranoid
   attr_accessor :generated_password
@@ -10,7 +11,8 @@ class AdminUser < ApplicationRecord
   has_many :admin_roles, dependent: :destroy
   has_many :roles, through: :admin_roles
   has_many :notifications, as: :receiver, dependent: :destroy
-  has_many :deletion_requests, as: :requestable, dependent: :destroy
+  # Kept after the account is (soft) deleted so admins keep the approval history.
+  has_many :deletion_requests, as: :requestable
   has_many :push_subscriptions, as: :subscriber, dependent: :destroy
   has_many :report_audit_logs, as: :user, dependent: :destroy
   has_many :support_tickets, foreign_key: 'admin_user_id', dependent: :destroy
@@ -133,7 +135,7 @@ class AdminUser < ApplicationRecord
 
   def generate_signup_token!
     token = SecureRandom.hex(20)
-    pin = rand(100000..999999).to_s
+    pin = SecureRandom.random_number(100000..999999).to_s
     now = Time.current
     update!(
       signup_token: token,
@@ -145,7 +147,8 @@ class AdminUser < ApplicationRecord
   end
 
   def otp_valid?(otp)
-    otp_pin.present? && otp_pin.to_s == otp.to_s && otp_sent_at.present? && otp_sent_at > 10.minutes.ago
+    otp_pin.present? && otp_sent_at.present? && otp_sent_at > 10.minutes.ago &&
+      ActiveSupport::SecurityUtils.secure_compare(otp_pin.to_s, otp.to_s.strip)
   end
 
   def token_valid?(token)

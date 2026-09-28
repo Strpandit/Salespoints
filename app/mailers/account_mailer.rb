@@ -8,8 +8,9 @@ class AccountMailer < ApplicationMailer
   end
 
   def set_password(account)
-    @url = "#{ENV['FRONTEND_URL']}/set-password?token=#{account.reset_password_token}"
-    mail(to: account.email, subject: "Set Your Password")
+    @account = account
+    @url = "#{ENV['FRONTEND_URL'].presence || 'https://salespoints.in'}/set-password?token=#{account.reset_password_token}"
+    mail(to: account.email, subject: "Reset Your SalesPoints Password") if account.email.present?
   end
 
   def signup_email(account)

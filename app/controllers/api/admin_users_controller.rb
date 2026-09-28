@@ -26,13 +26,18 @@ module Api
     end
 
     def login
-      admin = AdminUser.find_by(email: params[:email]&.downcase, status: 'active')
-      return unauthorized("Admin account not found") unless admin
+      admin = AdminUser.find_by(email: params[:email].to_s.strip.downcase, status: 'active')
+      return unauthorized("Invalid credentials") unless admin
+      unless admin.authenticate(params[:password])
+        ActivityLogger.log(actor: admin, action: "login_failed", category: "security",
+                           description: "Failed admin login attempt (wrong password)", request: request)
+        SecurityAlertService.check_failed_logins!(admin, request: request)
+        return unauthorized("Invalid credentials")
+      end
       return forbidden("Your admin onboarding is still pending approval") unless admin.approved?
-      return unauthorized("Invalid credentials") unless admin&.authenticate(params[:password])
 
       if admin.super_admin?
-        admin.update!(otp_pin: rand(1000..9999), otp_sent_at: Time.current)
+        admin.update!(otp_pin: SecureRandom.random_number(1000..9999).to_s, otp_sent_at: Time.current)
         AdminAuthMailer.login_otp(admin).deliver_later if admin.email.present?
 
         render json: {
@@ -45,9 +50,8 @@ module Api
           message: "OTP sent to your email. Please verify to complete login."
         }, status: :ok
       else
-        token = JsonWebToken.encode(user_id: admin.id, user_type: "AdminUser")
-
-        # Send login notification email
+        token = JsonWebToken.issue_for(admin)
+        ActivityLogger.log_auth(actor: admin, action: "login", request: request)
         AdminAuthMailer.admin_login_notification(admin).deliver_later
 
         render json: {
@@ -135,7 +139,7 @@ module Api
       admin = AdminUser.new(admin_user_params.except(:status))
       admin.approval_status = "pending"
       admin.status = "inactive"
-      admin.otp_pin = rand(1000..9999)
+      admin.otp_pin = SecureRandom.random_number(1000..9999).to_s
       admin.otp_sent_at = Time.current
 
       temp_password = SecureRandom.hex(6)
@@ -182,6 +186,7 @@ module Api
       end
 
       new_token = admin.generate_signup_token!
+      clear_otp_verify_attempts!("admin_signup", admin.id)
       AdminAuthMailer.signup_otp(admin).deliver_later
 
       render json: { message: "Signup OTP sent successfully", token: new_token }
@@ -201,15 +206,19 @@ module Api
       end
 
       role_ids = normalized_role_ids
+      manager = current_admin.super_admin?
+      attrs = manager ? admin_user_params : admin_user_params.except(*SUPER_ADMIN_ONLY_FIELDS)
+      status_changed = manager && attrs.key?(:status) && attrs[:status].to_s != @admin_user.status.to_s
 
       ActiveRecord::Base.transaction do
-        @admin_user.update!(admin_user_params)
-        assign_roles!(@admin_user, role_ids) if params.key?(:role_ids)
+        @admin_user.update!(attrs)
+        assign_roles!(@admin_user, role_ids) if manager && params.key?(:role_ids)
 
-        if params[:admin_user][:pincodes].present?
+        if manager && params.dig(:admin_user, :pincodes).present?
           assign_pincodes!(@admin_user, params[:admin_user][:pincodes])
         end
       end
+      @admin_user.revoke_tokens! if status_changed && @admin_user.inactive?
 
       render json: serialize_resource(@admin_user.reload, AdminUserSerializer, serializer_options).merge(
         message: "Profile updated successfully"
@@ -328,11 +337,11 @@ module Api
     end
 
     def forgot_password
-      admin = AdminUser.find_by(email: params[:email]&.downcase)
+      admin = AdminUser.find_by(email: params[:email].to_s.strip.downcase, status: "active")
       return unauthorized("Unable to process request") unless admin&.email.present?
 
       admin.update!(
-        otp_pin: rand(1000..9999),
+        otp_pin: SecureRandom.random_number(1000..9999).to_s,
         otp_sent_at: Time.current
       )
       Rails.cache.delete(reset_flow_cache_key(admin.id))
@@ -343,16 +352,20 @@ module Api
     end
 
     def login_otp
-      return unauthorized("Invalid admin login") unless @admin_user&.super_admin?
+      return unauthorized("Invalid admin login") unless @admin_user&.active? && @admin_user.super_admin?
       return unauthorized("Too many attempts. Please request a new OTP.") if otp_verify_locked?("admin_login", @admin_user.id)
 
       unless @admin_user.otp_valid?(params[:otp].to_s)
         record_failed_otp_attempt!("admin_login", @admin_user.id)
+        ActivityLogger.log(actor: @admin_user, action: "login_failed", category: "security",
+                           description: "Failed super admin login (wrong OTP)", request: request)
+        SecurityAlertService.check_failed_logins!(@admin_user, request: request)
         return unauthorized("Invalid OTP")
       end
       clear_otp_verify_attempts!("admin_login", @admin_user.id)
 
-      token = JsonWebToken.encode(user_id: @admin_user.id, user_type: "AdminUser")
+      token = JsonWebToken.issue_for(@admin_user)
+      ActivityLogger.log_auth(actor: @admin_user, action: "login", request: request, details: { method: "password_and_otp" })
       @admin_user.clear_otp!
       AdminAuthMailer.admin_login_notification(@admin_user).deliver_later if @admin_user.email.present?
 
@@ -372,7 +385,8 @@ module Api
     end
 
     def otp_confirmation
-      admin = AdminUser.find(params[:id])
+      admin = AdminUser.find_by(id: params[:id], status: "active")
+      return unauthorized("Invalid OTP") unless admin
       return unauthorized("Too many attempts. Please request a new OTP.") if otp_verify_locked?("admin_reset", admin.id)
 
       unless admin.otp_valid?(params[:otp].to_s)
@@ -397,9 +411,15 @@ module Api
         return render json: { error: "This verification link has already been used or verified. Please log in.", verified_or_expired: true }, status: :unprocessable_entity
       end
 
-      unless admin.otp_valid?(params[:otp].to_s)
-        return render json: { error: "Invalid or expired 6-digit OTP (10 min limit)." }, status: :unauthorized
+      if otp_verify_locked?("admin_signup", admin.id)
+        return render json: { error: "Too many attempts. Please request a new OTP." }, status: :too_many_requests
       end
+
+      unless admin.otp_valid?(params[:otp].to_s)
+        record_failed_otp_attempt!("admin_signup", admin.id)
+        return render json: { error: "Invalid or expired OTP (10 min limit)." }, status: :unauthorized
+      end
+      clear_otp_verify_attempts!("admin_signup", admin.id)
 
       temp_password = SecureRandom.hex(6)
       admin.update!(password: temp_password, password_confirmation: temp_password)
@@ -411,13 +431,18 @@ module Api
     end
 
     def reset_user_password
-      admin = AdminUser.find(params[:id])
+      admin = AdminUser.find_by(id: params[:id], status: "active")
+      return unauthorized("Reset session expired. Verify OTP again.") unless admin
+
       reset_token = params[:reset_token].to_s
       cached_token = Rails.cache.read(reset_flow_cache_key(admin.id)).to_s
-      return unauthorized("Reset session expired. Verify OTP again.") if reset_token.blank? || cached_token.blank? || cached_token != reset_token
+      if reset_token.blank? || cached_token.blank? || !ActiveSupport::SecurityUtils.secure_compare(cached_token, reset_token)
+        return unauthorized("Reset session expired. Verify OTP again.")
+      end
 
       if admin.update(password: params[:password], password_confirmation: params[:password_confirmation])
         admin.update(otp_pin: nil, otp_sent_at: nil)
+        admin.revoke_tokens!
         Rails.cache.delete(reset_flow_cache_key(admin.id))
         AdminAuthMailer.password_reset_confirmation(admin).deliver_later if admin.email.present?
         render json: { message: "Password reset successfully" }
@@ -442,7 +467,10 @@ module Api
     end
 
     def deactivate
+      return forbidden("You cannot deactivate your own account") if @admin_user.id == current_admin.id
+
       @admin_user.update!(status: "inactive")
+      @admin_user.revoke_tokens!
       render json: { message: "Admin user deactivated successfully" }
     end
 
@@ -452,6 +480,9 @@ module Api
     end
 
     private
+
+    # Fields an admin may not change on their own profile; only a super admin manages these.
+    SUPER_ADMIN_ONLY_FIELDS = %i[status salary joining_date pincodes].freeze
 
     def admin_user_params
       params.require(:admin_user).permit(
@@ -516,19 +547,12 @@ module Api
     end
 
     def notify_admin_approvers(admin)
-      AdminUser.where(status: "active", is_super_admin: true).find_each do |super_admin|
-        next if super_admin.email.blank?
-        AdminAuthMailer.onboarding_approval_request(admin, super_admin.email).deliver_later
+      emails = AdminUser.where(status: "active", is_super_admin: true).pluck(:email)
+      emails << current_admin.email if respond_to?(:current_admin) && current_admin&.email.present?
+      emails.compact.map(&:strip).reject(&:blank?).uniq.each do |email|
+        AdminAuthMailer.onboarding_approval_request(admin, email).deliver_later
       end
     end
-
-    # def notify_admin_approvers(admin)
-    #   approver_scope = AdminUser.active.select { |user| user.approver_admin? && user.email.present? && user.id != admin.id }
-    #   approver_scope.each do |approver|
-    #     AdminAuthMailer.onboarding_approval_request(admin, approver.email).deliver_later
-    #   end
-    # rescue StandardError
-    # end
 
     def reset_flow_cache_key(admin_id)
       "admin_password_reset_verified:#{admin_id}"

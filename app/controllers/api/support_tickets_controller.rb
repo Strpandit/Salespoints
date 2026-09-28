@@ -42,12 +42,24 @@ module Api
                   SupportTicket.none
                 end
 
+      # Counts per status for the whole list (header cards), before filters/paging.
+      status_counts = tickets.unscope(:order).group(:status).count
+
       tickets = tickets.by_status(params[:status]) if params[:status].present?
       tickets = tickets.by_priority(params[:priority]) if params[:priority].present?
       tickets = tickets.by_category(params[:category]) if params[:category].present?
 
+      # Server-side search so older tickets can be found (the list is paginated).
+      if params[:search].present?
+        q = "%#{ActiveRecord::Base.sanitize_sql_like(params[:search].to_s.strip)}%"
+        tickets = tickets.where(
+          "support_tickets.ticket_number ILIKE :q OR support_tickets.subject ILIKE :q OR support_tickets.description ILIKE :q "           "OR support_tickets.account_id IN (SELECT id FROM accounts WHERE email ILIKE :q OR phone ILIKE :q OR CONCAT_WS(' ', first_name, last_name) ILIKE :q) "           "OR support_tickets.dealer_id IN (SELECT id FROM dealers WHERE email ILIKE :q OR dealer_code ILIKE :q OR CONCAT_WS(' ', first_name, last_name) ILIKE :q)",
+          q: q
+        )
+      end
+
       page = (params[:page] || 1).to_i
-      per_page = (params[:per_page] || 10).to_i
+      per_page = (params[:per_page] || 10).to_i.clamp(1, 100)
       paginated = tickets.page(page).per(per_page)
 
       render json: {
@@ -58,6 +70,14 @@ module Api
           per_page: per_page,
           total_pages: paginated.total_pages,
           total_count: paginated.total_count
+        },
+        meta: {
+          current_page: paginated.current_page,
+          next_page: paginated.next_page,
+          prev_page: paginated.prev_page,
+          total_pages: paginated.total_pages,
+          total_count: paginated.total_count,
+          status_counts: status_counts
         }
       }
     end

@@ -1,6 +1,12 @@
 module Api
   class DealerLedgerEntriesController < ApplicationController
+    LEDGER_ADMIN_MODULES = %i[payouts payout_requests orders].freeze
+
     def index
+      if current_admin && LEDGER_ADMIN_MODULES.none? { |mod| current_admin.can_access?(mod, :read) }
+        return render json: { error: "Access denied: You do not have permission to view dealer ledgers." }, status: :forbidden
+      end
+
       dealer = resolve_dealer_scope
       return render json: { error: "Dealer not found" }, status: :not_found unless dealer
 

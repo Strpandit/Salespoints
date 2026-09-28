@@ -35,12 +35,14 @@ module Api
 
     def index
       orders = scoped_orders
+      # Per-status totals across every page (ignores the status filter) so summary counters stay accurate.
+      status_counts = apply_filters(orders, skip_status: true).unscope(:order).group(:status).count
       orders = apply_filters(orders)
       paginated = orders.recent.page(params[:page]).per(params[:per_page] || 20)
       paginated.each { |order| OrderSettlementService.process_if_due!(order) }
 
       render json: serialize_resource(paginated, OrderSerializer, base_url: request.base_url).merge(
-        meta: pagination_meta(paginated),
+        meta: pagination_meta(paginated).merge(status_counts: status_counts),
         pagination: pagination_meta(paginated),
         message: "Orders fetched successfully"
       ), status: :ok
@@ -169,10 +171,10 @@ module Api
       end
     end
 
-    def apply_filters(scope)
+    def apply_filters(scope, skip_status: false)
       filtered = scope
       status = params[:status].presence || params[:filter_status].presence
-      filtered = filtered.where(status: status) if status.present?
+      filtered = filtered.where(status: status) if status.present? && !skip_status
 
       if params[:search].present?
         query = params[:search].strip

@@ -11,7 +11,7 @@ class OtpService
     attempts = Rails.cache.read(otp_attempt_key(account)) || 0
     raise StandardError, "Too many OTP requests. Please try again in 5 minutes." if attempts >= MAX_ATTEMPTS
 
-    otp = rand(100000..999999).to_s
+    otp = SecureRandom.random_number(100000..999999).to_s
 
     account.update!(
       otp_pin: otp,

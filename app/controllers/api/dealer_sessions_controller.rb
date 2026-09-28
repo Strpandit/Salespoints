@@ -6,9 +6,9 @@ module Api
     def login
       dealer = Dealer.active.find_by(email: params[:email]&.downcase) || Dealer.find_by(phone: params[:phone]&.gsub(/\D/, ''))
 
-      return unauthorized("Invalid credentials"), status: :unauthorized unless dealer&.authenticate(params[:password]) && dealer.active?
+      return unauthorized("Invalid credentials") unless dealer&.authenticate(params[:password]) && dealer.active?
 
-      token = JsonWebToken.encode(user_id: dealer.id, user_type: "Dealer")
+      token = JsonWebToken.issue_for(dealer)
       ActivityLogger.log_auth(actor: dealer, action: "login", request: request)
 
       render json: {
@@ -40,7 +40,7 @@ module Api
       dealer = Dealer.active.find_by(email: params[:email]&.downcase) || Dealer.active.find_by(phone: params[:phone]&.gsub(/\D/, ''))
       return unauthorized("Unable to process request") unless dealer&.email.present?
 
-      dealer.update!(otp_pin: rand(1000..9999), otp_sent_at: Time.current)
+      dealer.update!(otp_pin: SecureRandom.random_number(1000..9999).to_s, otp_sent_at: Time.current)
       Rails.cache.delete(reset_flow_cache_key(dealer.id))
       DealerAuthMailer.forgot_password_otp(dealer).deliver_later if dealer.email.present?
       ActivityLogger.log_auth(actor: dealer, action: "forgot_password_otp_sent", request: request)
@@ -68,10 +68,13 @@ module Api
       dealer = Dealer.active.find(params[:id])
       reset_token = params[:reset_token].to_s
       cached_token = Rails.cache.read(reset_flow_cache_key(dealer.id)).to_s
-      return unauthorized("Reset session expired. Verify OTP again.") if reset_token.blank? || cached_token.blank? || cached_token != reset_token
+      if reset_token.blank? || cached_token.blank? || !ActiveSupport::SecurityUtils.secure_compare(cached_token, reset_token)
+        return unauthorized("Reset session expired. Verify OTP again.")
+      end
 
       if dealer.update(password: params[:password], password_confirmation: params[:password_confirmation])
         dealer.update(otp_pin: nil, otp_sent_at: nil)
+        dealer.revoke_tokens!
         Rails.cache.delete(reset_flow_cache_key(dealer.id))
         DealerAuthMailer.password_reset_confirmation(dealer).deliver_later if dealer.email.present?
         ActivityLogger.log_auth(actor: dealer, action: "reset_password", request: request)

@@ -24,8 +24,8 @@ module Api
     end
 
     def create
-      # ✅ Require authentication
-      return render json: { error: "Please login to review" }, status: :unauthorized unless current_account
+      # Reviews belong to customer accounts (reviews.account_id is required).
+      return render json: { error: "Only customer accounts can write product reviews" }, status: :forbidden unless current_account
 
       # ✅ Check if user already reviewed
       if existing_review?
@@ -34,9 +34,15 @@ module Api
         }, status: :unprocessable_entity
       end
 
+      unless user_verified?(@reviewable)
+        return render json: {
+          error: "Only customers who have received this product can review it"
+        }, status: :forbidden
+      end
+
       review = @reviewable.reviews.new(review_params)
       review.account = current_account
-      review.verified = user_verified?(@reviewable)
+      review.verified = true
 
       if review.save
         render json: serialize_resource(review, ReviewSerializer).merge(
@@ -83,23 +89,24 @@ module Api
       end
     end
 
+    # Every status an order can reach after it was handed to the customer.
+    RECEIVED_ORDER_STATUSES = %w[
+      delivered return_requested return_approved return_in_transit returned
+      replacement_requested replacement_approved replacement_shipped replacement_delivered
+    ].freeze
+
     def user_verified?(reviewable)
       return false unless current_account
 
-      if reviewable.is_a?(Product)
-        dealer_product_ids = DealerProduct.where(product_id: reviewable.id).pluck(:id)
-        
-        Order.joins(:order_items)
-             .where(buyer_type: "Account", buyer_id: current_account.id)
-             .where(order_items: { dealer_product_id: dealer_product_ids })
-             .where(status: "delivered")
-             .exists?
-      elsif reviewable.is_a?(DealerProduct)
-        B2bOrder.joins(:b2b_order_items)
-                .where(buyer_dealer_id: current_account.id)
-                .where(b2b_order_items: { dealer_product_id: reviewable.id })
-                .where(status: "confirmed")
-                .exists?
+      received_items = OrderItem.joins(:order).where(
+        orders: { buyer_type: "Account", buyer_id: current_account.id, status: RECEIVED_ORDER_STATUSES }
+      )
+
+      case reviewable
+      when Product
+        received_items.joins(:product_variant).where(product_variants: { product_id: reviewable.id }).exists?
+      when DealerProduct
+        received_items.where(dealer_product_id: reviewable.id).exists?
       else
         false
       end

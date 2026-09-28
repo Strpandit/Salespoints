@@ -2,7 +2,7 @@ class ActivityLog < ApplicationRecord
   belongs_to :actor, polymorphic: true, optional: true
   belongs_to :target, polymorphic: true, optional: true
 
-  CATEGORIES = %w[auth catalog inventory orders offers wholesale kyc support admin_action reports settings profile security].freeze
+  CATEGORIES = %w[auth catalog inventory orders offers wholesale kyc support admin_action reports settings profile security reviews marketing].freeze
 
   validates :actor_type, presence: true
   validates :actor_id, presence: true

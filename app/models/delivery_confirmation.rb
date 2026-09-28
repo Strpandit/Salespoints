@@ -46,7 +46,8 @@ class DeliveryConfirmation < ApplicationRecord
   end
 
   def buyer_otp_valid?(otp)
-    buyer_otp.present? && buyer_otp.to_s.strip == otp.to_s.strip && buyer_otp_sent_at.present? && buyer_otp_sent_at > 10.minutes.ago
+    buyer_otp.present? && buyer_otp_sent_at.present? && buyer_otp_sent_at > 10.minutes.ago &&
+      ActiveSupport::SecurityUtils.secure_compare(buyer_otp.to_s.strip, otp.to_s.strip)
   end
 
   def seller_name

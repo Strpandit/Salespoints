@@ -159,9 +159,11 @@ module Api
       current_user
     end
 
-    ### notification helpers
+    # notification helpers
     def get_admin_emails
-      AdminUser.where(is_super_admin: true).pluck(:email)
+      emails = AdminUser.where(status: "active", is_super_admin: true).pluck(:email)
+      emails << current_admin.email if respond_to?(:current_admin) && current_admin&.email.present?
+      emails.compact.map(&:strip).reject(&:blank?).uniq
     end
 
     def notify_admins_entity_created(category)

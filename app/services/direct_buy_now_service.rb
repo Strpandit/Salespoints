@@ -24,12 +24,20 @@ class DirectBuyNowService
 
     eligible_dealers = find_eligible_dealers(variant)
     raise StandardError, "No sellers available for delivery in your pincode" if eligible_dealers.empty?
+    if eligible_dealers.none? { |dealer| dealer_stock_for(dealer, variant) >= @quantity }
+      max_available = eligible_dealers.map { |dealer| dealer_stock_for(dealer, variant) }.max.to_i
+      raise StandardError, "Only #{max_available} unit(s) available for delivery to your pincode"
+    end
 
     pricing = Pricing::PriceCalculator.new(
       variant: variant,
       quantity: @quantity,
       user_type: :account
     ).call
+
+    if @payment_method == "cod" && pricing[:total].to_d > PaymentLimits::COD_LIMIT
+      raise StandardError, "Cash on Delivery is available only for orders up to #{PaymentLimits::COD_LIMIT_LABEL}. Please pay online."
+    end
 
     order = nil
     payment_data = {}
@@ -110,6 +118,15 @@ class DirectBuyNowService
          .where(order_items: { product_variant_id: product_variant_id })
          .where("orders.placed_at > ?", 60.seconds.ago)
          .exists?
+  end
+
+  # A seller fulfils from a single listing (see B2bOrderDealerResponseService#deduct_b2c_stock!),
+  # so the usable stock is the largest matching listing, not the sum.
+  def dealer_stock_for(dealer, variant)
+    dealer.dealer_products
+          .select { |dp| dp.product_variant_id == variant.id && dp.sell_in_b2c && dp.is_active && dp.approve_status == "approved" }
+          .map { |dp| dp.stock_quantity.to_i }
+          .max.to_i
   end
 
   def find_eligible_dealers(variant)

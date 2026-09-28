@@ -31,6 +31,9 @@ class OfferMartBuyNowService
     order = nil
     payment_data = {}
     cod = @payment_method == "cod"
+    if cod && pricing[:total].to_d > PaymentLimits::COD_LIMIT
+      raise StandardError, "Cash on Delivery is available only for orders up to #{PaymentLimits::COD_LIMIT_LABEL}. Please pay online."
+    end
 
     @buyer.with_lock do
       if !cod && recent_duplicate_pending_order?(offer.id)

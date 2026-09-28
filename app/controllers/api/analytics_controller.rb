@@ -390,8 +390,13 @@ module Api
 
     private
 
+    # Platform-wide numbers are for admins only; a dealer gets just their own dashboard.
+    DEALER_ACTIONS = %w[dealer_dashboard].freeze
+
     def authorize_analytics_access
-      return if current_user_type.in?(%w[AdminUser Dealer])
+      return if current_admin
+      return if current_dealer && DEALER_ACTIONS.include?(action_name)
+
       render json: { success: false, error: "Access denied" }, status: :forbidden
     end
 
@@ -547,8 +552,8 @@ module Api
 
     # ─── PAYMENT BREAKDOWN ─────────────────────────────────────────────────────
     def build_payment_breakdown(b2c_orders, b2b_orders)
-      b2c_methods = b2c_orders.group(:payment_method).count rescue {}
-      b2b_methods = b2b_orders.group(:payment_mode).count   rescue {}
+      b2c_methods = b2c_orders.unscope(:order).group(:payment_method).count
+      b2b_methods = b2b_orders.unscope(:order).group(:payment_method).count
 
       combined = b2c_methods.transform_keys(&:to_s)
       b2b_methods.each do |method, count|

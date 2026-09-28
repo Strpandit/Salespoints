@@ -103,7 +103,13 @@ module Api
 
       # If requested as asynchronous/background job (e.g. for heavy reports or email delivery)
       if params[:async].to_s == "true" || params[:deliver_via] == "email"
-        email = params[:recipient_email].presence || (user.respond_to?(:email) ? user.email : nil)
+        # Dealers only receive their own data on their own inbox; admins may forward to a valid address.
+        own_email = user.respond_to?(:email) ? user.email : nil
+        requested = params[:recipient_email].to_s.strip
+        email = scope == :admin && requested.match?(URI::MailTo::EMAIL_REGEXP) ? requested : own_email
+        if email.blank?
+          return render json: { success: false, error: "No email address available for report delivery" }, status: :unprocessable_entity
+        end
         GenerateReportJob.perform_later(
           report_key: report_key,
           format: format,

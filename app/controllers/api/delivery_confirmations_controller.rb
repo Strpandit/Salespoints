@@ -3,6 +3,9 @@ module Api
     skip_before_action :authenticate_request!
     before_action :set_confirmation
 
+    OTP_SCOPE = "delivery_otp".freeze
+    RESEND_COOLDOWN = 60.seconds
+
     def show
       render json: serialize_resource(@confirmation, DeliveryConfirmationSerializer, include: []).merge(
         deliverable: serialized_deliverable,
@@ -32,7 +35,12 @@ module Api
     end
 
     def resend_otps
+      if @confirmation.buyer_otp_sent_at&.after?(RESEND_COOLDOWN.ago)
+        return render json: { error: "Please wait a minute before requesting another OTP" }, status: :too_many_requests
+      end
+
       service.send_otps!(@confirmation)
+      clear_otp_verify_attempts!(OTP_SCOPE, @confirmation.id)
 
       render json: serialize_resource(@confirmation.reload, DeliveryConfirmationSerializer).merge(
         message: "OTPs sent successfully"
@@ -42,11 +50,22 @@ module Api
     end
 
     def verify_otps
+      if otp_verify_locked?(OTP_SCOPE, @confirmation.id)
+        return render json: { error: "Too many wrong attempts. Please resend the OTP to the buyer." }, status: :too_many_requests
+      end
+
       otp_value = params[:buyer_otp].presence || params.dig(:delivery_confirmation, :buyer_otp)
+      unless @confirmation.completed? || @confirmation.buyer_otp_valid?(otp_value)
+        record_failed_otp_attempt!(OTP_SCOPE, @confirmation.id)
+        # Once the budget is spent the OTP is burned, so it cannot be brute-forced by whoever holds the link.
+        @confirmation.update_columns(buyer_otp: nil) if otp_verify_locked?(OTP_SCOPE, @confirmation.id)
+      end
+
       confirmation = service.verify_otps!(
         confirmation: @confirmation,
         buyer_otp: otp_value
       )
+      clear_otp_verify_attempts!(OTP_SCOPE, @confirmation.id)
 
       render json: serialize_resource(confirmation, DeliveryConfirmationSerializer).merge(
         deliverable: serialized_deliverable,

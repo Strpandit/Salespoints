@@ -244,13 +244,6 @@ class MetaWhatsappWebhookService
     offer
   end
 
-  def find_dealer_by_phone(from)
-    normalized_from = from.to_s.gsub(/\D/, "")
-    
-    Dealer.find_by("REPLACE(phone, ' ', '') LIKE ?", "%#{normalized_from}") ||
-    Dealer.find_by("REPLACE(phone, ' ', '') = ?", normalized_from)
-  end
-
   def process_button_reply(button_id:, from:)
 
     # ── Replacement request: accept / reject via signed token ──────────────
@@ -590,15 +583,11 @@ class MetaWhatsappWebhookService
     # Strip leading country code (try last 10 digits for India)
     phone_10 = digits.length >= 10 ? digits[-10..] : digits
 
-    Dealer.find_each do |dealer|
-      dealer_phone = dealer.phone.to_s.gsub(/\D/, "")
-      next if dealer_phone.blank?
-
-      dealer_10 = dealer_phone.length >= 10 ? dealer_phone[-10..] : dealer_phone
-      return dealer if dealer_10 == phone_10
-    end
-
-    nil
+    # Same match as comparing the last 10 digits in Ruby, but done in one indexed-friendly query
+    # instead of loading every dealer on each incoming WhatsApp message.
+    Dealer.where("RIGHT(regexp_replace(COALESCE(phone, ''), '\\D', '', 'g'), 10) = ?", phone_10)
+          .order(:id)
+          .first
   end
 
   def mapped_whatsapp_status(status)
