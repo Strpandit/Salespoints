@@ -53,6 +53,18 @@ module Api
       offer.seller_code = current_dealer.dealer_code
       assign_catalog_fields(offer, dealer_product)
       offer.approve_status = "pending"
+      offer.offer_starts_at ||= Time.current
+
+      # Auto-attach existing product media attachments to offer in DB if no custom media is provided
+      if offer.media.blank? && dealer_product.present?
+        blobs_to_attach = dealer_product.display_media_attachments.map do |att|
+          att.respond_to?(:blob) ? att.blob : nil
+        end.compact.uniq
+
+        blobs_to_attach.each do |b|
+          offer.media.attach(b)
+        end
+      end
 
       if offer.save
         render json: { data: offer_payload(offer), message: "Offer submitted for admin review" }, status: :created
@@ -453,7 +465,7 @@ module Api
           business_name: dealer.dealer_profile&.business_name,
         },
         dealer_name: offer.seller_code.present? ? "Seller: #{offer.seller_code}" : "Seller",
-        media: offer.media.map { |file| attachment_payload(file) },
+        media: (offer.display_media_attachments || []).map { |file| attachment_payload(file) }.compact,
         created_at: offer.created_at,
         updated_at: offer.updated_at
       }

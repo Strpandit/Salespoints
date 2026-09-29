@@ -32,4 +32,6 @@
 
 # Ignore master key for decrypting credentials and more.
 /config/master.key
+/config/*firebase*.json
+/config/*service-account*.json
 *.md

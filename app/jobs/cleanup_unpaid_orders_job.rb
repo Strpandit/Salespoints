@@ -4,18 +4,27 @@ class CleanupUnpaidOrdersJob < ApplicationJob
   UNPAID_AFTER = 6.hours
 
   def perform
+    # 1. Expire unassigned / broadcast pending orders past their expiry
+    Order
+      .where(status: "pending")
+      .where("expires_at IS NOT NULL AND expires_at < ?", Time.current)
+      .find_each do |order|
+        cleanup_order(order, reason: "Order expired — no dealer accepted within time limit")
+      end
+
+    # 2. Expire unpaid online orders past 6 hours
     Order
       .where(payment_method: "online", status: "pending")
       .where.not(payment_status: "paid")
-      .where("placed_at < ?", UNPAID_AFTER.ago)
+      .where("placed_at < ? OR (placed_at IS NULL AND created_at < ?)", UNPAID_AFTER.ago, UNPAID_AFTER.ago)
       .find_each do |order|
-        cleanup_order(order)
+        cleanup_order(order, reason: "Order auto-cancelled — online payment was never completed within time")
       end
   end
 
   private
 
-  def cleanup_order(order)
+  def cleanup_order(order, reason: "Order auto-cancelled — payment/expiry timeout")
     ActiveRecord::Base.transaction do
       order.reload
 
@@ -27,7 +36,7 @@ class CleanupUnpaidOrdersJob < ApplicationJob
         status: "cancelled",
         payment_status: order.payment_status == "pending" ? "failed" : order.payment_status,
         cancelled_at: Time.current,
-        status_note: [order.status_note, "Order auto-cancelled — online payment was never completed within 6 hours"].compact.join(" | ")
+        status_note: [order.status_note, reason].compact.join(" | ")
       )
     end
 

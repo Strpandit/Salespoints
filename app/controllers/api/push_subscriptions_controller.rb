@@ -1,5 +1,5 @@
 module Api
-  class PushSubscriptionsController < ApplicationController
+  class PushSubscriptionsController < Api::ApplicationController
     def create
       token = params[:token].to_s.strip
       platform = params[:platform].to_s.strip.presence

@@ -80,6 +80,15 @@ class DealerOffer < ApplicationRecord
     device_model.presence || product&.name || "Dealer Offer"
   end
 
+  def display_media_attachments
+    return media if media.attached?
+    return dealer_product.display_media_attachments if dealer_product.present?
+    return product_variant.display_media_attachments if product_variant.present?
+    return product.media if product&.media&.attached?
+
+    []
+  end
+
   def remaining_quantity
     [ available_quantity.to_i - sold_quantity.to_i, 0 ].max
   end
