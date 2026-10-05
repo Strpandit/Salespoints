@@ -1,8 +1,8 @@
 module Api
   class DealersController < ApplicationController
-    skip_before_action :authenticate_request!, only: [:verify_otp, :resend_signup_otp, :check_signup_token]
+    skip_before_action :authenticate_request!, only: [:create, :verify_otp, :resend_signup_otp, :check_signup_token]
     # before_action :authenticate_request!, except: [:verify_otp]
-    before_action :require_admin, only: [:create, :index, :active_dealers, :block, :unblock, :destroy, :approve, :reject, :admin_overview, :approve_manual_bank_account, :bank_change_requests, :approve_bank_change, :reject_bank_change]
+    before_action :require_admin, only: [:index, :active_dealers, :block, :unblock, :destroy, :approve, :reject, :admin_overview, :approve_manual_bank_account, :bank_change_requests, :approve_bank_change, :reject_bank_change]
     before_action :require_admin_approver!, only: [:approve, :reject, :approve_manual_bank_account]
     before_action :require_super_admin!, only: [:bank_change_requests, :approve_bank_change, :reject_bank_change]
     before_action :set_dealer, only: [:show, :update, :destroy, :block, :unblock, :approve, :reject, :admin_overview, :verify_bank_account, :request_manual_bank_verification, :approve_manual_bank_account, :request_bank_change, :approve_bank_change, :reject_bank_change]
@@ -198,7 +198,7 @@ module Api
     end
 
     def create
-      if params[:dealer][:pincode].present?
+      if current_user_type == "AdminUser" && current_admin.present? && params[:dealer][:pincode].present?
         unless current_admin.can_access_pincode?(params[:dealer][:pincode])
           return render json: { error: "Access denied for pincode: #{params[:dealer][:pincode]}" }, status: :forbidden
         end
