@@ -106,10 +106,6 @@ class Dealer < ApplicationRecord
     (password_digest.present? && otp_pin.blank?) || status == 'active'
   end
 
-  def orders
-    sales_orders
-  end
-
   def update_location_from_address!
     return false if dealer_profile.blank? || dealer_profile.business_address.blank?
 

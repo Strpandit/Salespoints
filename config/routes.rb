@@ -39,6 +39,7 @@ Rails.application.routes.draw do
 
     get "storefront/hero_slides", to: "storefront#hero_slides"
     get "storefront/flash_sale", to: "storefront#flash_sale"
+    resources :push_subscriptions, only: [:create]
     resources :dealer_orders, only: [:index, :show]
     resources :accounts do
       put :change_password, on: :member
