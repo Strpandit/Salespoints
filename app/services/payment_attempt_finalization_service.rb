@@ -144,7 +144,13 @@ class PaymentAttemptFinalizationService
         payment_reference: attempt.payment_reference,
         payment_confirmed_at: Time.current,
       )
-      
+
+      if OfferMartPaymentService.offer_order?(order)
+        OfferMartPaymentService.confirm_paid!(order)
+        orders << order.reload
+        next
+      end
+
       B2cOrderBroadcastService.new(
         order: order,
         actor: order.buyer

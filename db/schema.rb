@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.0].define(version: 2026_09_28_000001) do
+ActiveRecord::Schema[8.0].define(version: 2026_10_09_000001) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -1300,11 +1300,13 @@ ActiveRecord::Schema[8.0].define(version: 2026_09_28_000001) do
     t.string "mf_year"
     t.integer "live_days", default: 7, null: false
     t.integer "min_order_quantity", default: 1, null: false
+    t.string "slug"
     t.index ["approve_status"], name: "index_wholesaler_posts_on_approve_status"
     t.index ["dealer_id"], name: "index_wholesaler_posts_on_dealer_id"
     t.index ["dealer_product_id"], name: "index_wholesaler_posts_on_dealer_product_id"
     t.index ["pincodes"], name: "index_wholesaler_posts_on_pincodes", using: :gin
     t.index ["reviewed_by_admin_id"], name: "index_wholesaler_posts_on_reviewed_by_admin_id"
+    t.index ["slug"], name: "index_wholesaler_posts_on_slug", unique: true
   end
 
   add_foreign_key "active_storage_attachments", "active_storage_blobs", column: "blob_id"

@@ -25,6 +25,7 @@ class WholesalerPost < ApplicationRecord
   after_save { self.listing_edit = false }
 
   before_validation :set_default_mf_year, on: :create
+  before_validation :set_slug, on: :create
   LIVE_UNTIL_SQL = "(COALESCE(wholesaler_posts.reuploaded_at, wholesaler_posts.created_at) + (wholesaler_posts.live_days * INTERVAL '1 day'))".freeze
 
   scope :visible_to_marketplace, -> {
@@ -39,6 +40,17 @@ class WholesalerPost < ApplicationRecord
   scope :by_pincodes, ->(pincodes) { where("pincodes && ARRAY[?]::varchar[]", pincodes) }
   scope :approved_and_live, -> { where(approve_status: "approved") }
   
+  def to_param
+    slug.presence || id.to_s
+  end
+
+  def self.find_by_slug_or_id(value)
+    q = value.to_s.strip
+    return nil if q.blank?
+
+    find_by(slug: q) || (q.match?(/\A\d+\z/) ? find_by(id: q) : nil)
+  end
+
   def display_media_attachments
     return media if media.attached?
     return dealer_product.display_media_attachments if dealer_product.present?
@@ -99,6 +111,15 @@ class WholesalerPost < ApplicationRecord
   end
 
   private
+
+  def set_slug
+    return if slug.present?
+
+    base = title.to_s.parameterize.presence || "bulk-deal"
+    candidate = base
+    candidate = "#{base}-#{SecureRandom.hex(3)}" while WholesalerPost.exists?(slug: candidate)
+    self.slug = candidate
+  end
 
   def set_default_mf_year
     self.mf_year = Time.current.strftime("%m/%Y") if mf_year.blank?

@@ -1,7 +1,7 @@
 class DealerProductSerializer < ApplicationSerializer
   attributes :stock_quantity, :color_stocks, :is_active, :approve_status, :sell_in_b2b, :sell_in_b2c, :created_at, :updated_at, :distance_km,
              :media, :consumer_discount_percentage,
-             :dealer_discount_percentage, :from_wholesaler, :wholesaler_post_id, :hsn_code
+             :dealer_discount_percentage, :from_wholesaler, :wholesaler_post_id, :wholesaler_post_slug, :hsn_code
 
   belongs_to :dealer
   belongs_to :product
@@ -17,6 +17,10 @@ class DealerProductSerializer < ApplicationSerializer
 
   def wholesaler_post_id
     object.respond_to?(:wholesaler_post_id) ? object.wholesaler_post_id : nil
+  end
+
+  def wholesaler_post_slug
+    object.respond_to?(:wholesaler_post_slug) ? object.wholesaler_post_slug : nil
   end
 
   def consumer_discount_percentage

@@ -12,30 +12,34 @@ class B2bSearchSuggestionService
 
     search_data = self.class.matching_product_mapping(query: @query, buyer_dealer: @buyer_dealer, pincode: @pincode)
 
-    all_wholesaler_post_ids = (search_data[:wholesaler_post_ids].values + search_data[:standalone_wholesaler_post_ids]).uniq
-    wholesaler_posts = WholesalerPost.includes(dealer_product: :product)
+    all_wholesaler_post_ids = (search_data[:wholesaler_post_ids].values.flatten + search_data[:standalone_wholesaler_post_ids]).uniq
+    wholesaler_posts = WholesalerPost.includes(dealer_product: [:product, :product_variant])
                                      .where(id: all_wholesaler_post_ids)
                                      .limit(20)
 
-    b2b_products = DealerProduct.includes(:product)
+    b2b_products = DealerProduct.includes(:product, :product_variant)
                                 .where(product_id: search_data[:b2b_product_ids])
-                                .limit(20)
+                                .limit(30)
 
     wholesaler = wholesaler_posts.filter_map do |post|
-      label = post.dealer_product&.product&.name.presence || post.title
+      product = post.dealer_product&.product
+      label = product&.name.presence || post.title
       next if label.blank?
       {
-        label: label,
+        label: with_variant_label(label, product, post.dealer_product&.product_variant),
+        query: label,
         type: "wholesaler",
         dealer_product_id: post.dealer_product_id,
-        wholesaler_post_id: post.id
+        wholesaler_post_id: post.id,
+        wholesaler_post_slug: post.slug
       }
     end
 
     b2b = b2b_products.filter_map do |row|
       next unless row.product
       {
-        label: row.product.name,
+        label: with_variant_label(row.product.name, row.product, row.product_variant),
+        query: row.product.name,
         type: "b2b",
         dealer_product_id: row.id,
         product_slug: row.product.slug
@@ -57,7 +61,7 @@ class B2bSearchSuggestionService
     posts.each do |post|
       dealer_product = post.dealer_product
       if dealer_product&.sellable_in_b2b? && dealer_product.stock_quantity.to_i.positive?
-        wholesaler_mapping[dealer_product.product_id] = post.id
+        (wholesaler_mapping[dealer_product.product_id] ||= []) << post.id
       else
         standalone_post_ids << post.id if post.stock_quantity.to_i.positive?
       end
@@ -76,7 +80,8 @@ class B2bSearchSuggestionService
 
       additional_posts.each do |post|
         next unless post.dealer_product&.sellable_in_b2b? && post.dealer_product.stock_quantity.to_i.positive?
-        wholesaler_mapping[post.dealer_product.product_id] ||= post.id
+        ids = (wholesaler_mapping[post.dealer_product.product_id] ||= [])
+        ids << post.id unless ids.include?(post.id)
       end
     end
 
@@ -203,6 +208,15 @@ class B2bSearchSuggestionService
   end
 
   private
+
+  # "Vivo Y-30 (4-64)" -- only when the product really has several variants to tell apart.
+  def with_variant_label(name, product, variant)
+    return name if variant.blank? || product.blank?
+    return name unless product.product_variants.count { |v| v.is_active && v.deleted_at.nil? } > 1
+
+    title = variant.variant_sku.presence
+    title ? "#{name} (#{title})" : name
+  end
 
   def auto_capture_pincode
     default_address = @buyer_dealer.addresses.where(is_default: true).first ||

@@ -92,6 +92,10 @@ class OfferMartBuyNowService
     Result.new(order: order, payment_data: payment_data)
   end
 
+  def notify_paid_order(order, offer)
+    notify_offer_order_placed(order, offer)
+  end
+
   private
 
   def recent_duplicate_pending_order?(dealer_offer_id)

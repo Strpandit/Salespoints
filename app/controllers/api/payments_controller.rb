@@ -126,6 +126,7 @@ module Api
         cancelled_at: Time.current,
         failure_reason: params[:reason].presence || "Payment cancelled by user"
       ) unless attempt.terminal?
+      release_offer_mart_reservation!(attempt, "payment cancelled by buyer") if scoped_payment_attempts.exists?(id: attempt.id)
 
       render json: {
         data: serialize_payment_attempt(attempt),
@@ -324,6 +325,19 @@ module Api
       attrs[:cancelled_at] = Time.current if terminal_state == "cancelled"
       attrs[:failed_at] = Time.current if terminal_state == "failed"
       attempt.update!(attrs) unless attempt.terminal?
+      # Only a gateway-final state frees the stock; a plain FAILED try can still be retried and paid.
+      release_offer_mart_reservation!(attempt, "payment #{status.to_s.downcase}") if status.in?(%w[CANCELLED USER_DROPPED EXPIRED TERMINATED])
+    end
+
+    def release_offer_mart_reservation!(attempt, reason)
+      return unless attempt.result_payload&.dig("checkout_context") == "offer_mart_order"
+      return if attempt.paid? || attempt.processed?
+
+      Order.where(id: Array(attempt.result_payload["order_ids"])).find_each do |order|
+        OfferMartPaymentService.release_unpaid!(order, reason: reason)
+      end
+    rescue StandardError => e
+      Rails.logger.warn("[PaymentsController] offer mart release failed: #{e.message}")
     end
 
     def serialize_payment_attempt(attempt)

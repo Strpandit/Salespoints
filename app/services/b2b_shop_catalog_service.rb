@@ -90,6 +90,10 @@ class WholesalerPostCatalogWrapper
     wholesaler_post.id
   end
 
+  def wholesaler_post_slug
+    wholesaler_post.slug
+  end
+
   def effective_hsn_code
     wholesaler_post.effective_hsn_code
   end
@@ -239,12 +243,15 @@ class B2bShopCatalogService
     DealerLocation.distance_km(lat1, lng1, lat2, lng2)
   end
 
+  # One card per product *variant*: searching "Vivo Y-30" must list its 4-64, 6-128 and 8-128
+  # options separately, while several dealers selling the same variant still collapse into one
+  # card (nearest dealer's row, stock summed).
   def group_products(rows)
-    grouped = rows.group_by(&:product_id)
+    grouped = rows.group_by { |row| [row.product_id, row.product_variant_id] }
 
     if @params[:ratings].present? && @params[:ratings].is_a?(Array)
       min_rating = @params[:ratings].min.to_i
-      grouped = grouped.select do |product_id, dealer_products|
+      grouped = grouped.select do |_key, dealer_products|
         product = dealer_products.first&.product
         next false unless product
         product.average_rating >= min_rating
@@ -313,7 +320,7 @@ class B2bShopCatalogService
 
     return rows if @params[:search].blank? || @search_mapping.nil?
 
-    wholesaler_ids = (@search_mapping[:wholesaler_post_ids].values + (@search_mapping[:standalone_wholesaler_post_ids] || [])).uniq
+    wholesaler_ids = (@search_mapping[:wholesaler_post_ids].values.flatten + (@search_mapping[:standalone_wholesaler_post_ids] || [])).uniq
     return rows if wholesaler_ids.empty?
 
     wholesaler_posts = WholesalerPost.visible_to_marketplace

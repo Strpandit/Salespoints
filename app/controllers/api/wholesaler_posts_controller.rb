@@ -118,7 +118,7 @@ module Api
           { product: { media_attachments: :blob } },
           { product_variant: { product: { media_attachments: :blob } } }
         ]
-      ).find_by(id: params[:id])
+      ).find_by_slug_or_id(params[:id])
       return render json: { error: "Not found" }, status: :not_found unless post
 
       unless post.visible_to_others? || current_dealer&.id == post.dealer_id || current_admin.present?
@@ -528,6 +528,7 @@ module Api
       dealer = post.dealer
       {
         id: post.id,
+        slug: post.slug,
         title: post.title,
         body: post.body,
         price: post.price,
