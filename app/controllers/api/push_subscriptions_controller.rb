@@ -15,5 +15,14 @@ module Api
     rescue ActiveRecord::RecordInvalid => e
       render json: { error: e.record.errors.full_messages }, status: :unprocessable_entity
     end
+
+    # Called on logout so this device stops receiving the signed-out user's notifications.
+    def destroy
+      token = params[:token].to_s.strip
+      return render json: { error: "token is required" }, status: :unprocessable_entity if token.blank?
+
+      PushSubscription.where(token: token, subscriber: current_user).destroy_all
+      render json: { message: "Unregistered" }, status: :ok
+    end
   end
 end

@@ -2,8 +2,11 @@ class JsonWebToken
   SECRET = Rails.application.credentials.jwt_secret || Rails.application.secret_key_base
   ALGORITHM = 'HS256'
   VERSION_CLAIM = :tv
+  # Tokens issued before this limit (2 years) keep their own exp until they lapse.
+  DEFAULT_TTL = 90.days
+  ADMIN_TTL = 14.days
 
-  def self.encode(payload, exp = 2.years.from_now)
+  def self.encode(payload, exp = DEFAULT_TTL.from_now)
     JWT.encode(payload.merge(exp: exp.to_i), SECRET, ALGORITHM)
   end
 
@@ -14,7 +17,8 @@ class JsonWebToken
   # Session token for an Account, Dealer or AdminUser, stamped with its current token_version
   # so `revoke_tokens!` on the record invalidates it.
   def self.issue_for(user)
-    encode(user_id: user.id, user_type: user.class.name, VERSION_CLAIM => token_version_of(user))
+    ttl = user.is_a?(AdminUser) ? ADMIN_TTL : DEFAULT_TTL
+    encode({ user_id: user.id, user_type: user.class.name, VERSION_CLAIM => token_version_of(user) }, ttl.from_now)
   end
 
   # Tokens minted before versioning existed carry no claim and count as version 0.

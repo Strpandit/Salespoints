@@ -41,17 +41,14 @@ module Api
     end
 
     def paginated_notifications
-      items = notifications_scope.map { |item| serialize_notification(item) }
-
-      sorted = items.sort_by { |item| item[:created_at] || Time.at(0) }.reverse
       page = params[:page].presence.to_i
       per_page = params[:per_page].presence.to_i
       page = 1 if page <= 0
       per_page = 20 if per_page <= 0
-      paginated = Kaminari.paginate_array(sorted).page(page).per(per_page)
+      paginated = notifications_scope.reorder(created_at: :desc, id: :desc).page(page).per(per_page)
 
       {
-        records: paginated,
+        records: paginated.map { |item| serialize_notification(item) },
         meta: {
           current_page: paginated.current_page,
           next_page: paginated.next_page,

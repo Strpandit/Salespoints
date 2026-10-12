@@ -1,6 +1,10 @@
 module Api
   class DealersController < ApplicationController
     skip_before_action :authenticate_request!, only: [:create, :verify_otp, :resend_signup_otp, :check_signup_token]
+    rate_limit to: 10, within: 10.minutes, only: [:create, :resend_signup_otp], name: "dealer-signup", by: -> { client_ip },
+               with: -> { render json: { error: "Too many requests. Please try again later." }, status: :too_many_requests }
+    rate_limit to: 30, within: 10.minutes, only: :verify_otp, name: "dealer-signup-verify", by: -> { client_ip },
+               with: -> { render json: { error: "Too many attempts. Please try again later." }, status: :too_many_requests }
     # before_action :authenticate_request!, except: [:verify_otp]
     before_action :require_admin, only: [:index, :active_dealers, :block, :unblock, :destroy, :approve, :reject, :admin_overview, :approve_manual_bank_account, :bank_change_requests, :approve_bank_change, :reject_bank_change]
     before_action :require_admin_approver!, only: [:approve, :reject, :approve_manual_bank_account]

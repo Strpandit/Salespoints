@@ -1,6 +1,7 @@
 module Api
   class OrdersController < ApplicationController
     before_action :require_buyer!, only: [:buy_now, :download_invoice]
+    before_action :authorize_admin_orders_access!, only: [:index, :show, :update, :refund, :release_settlement]
 
     def buy_now
       shipping_address = params[:shipping_address].presence || checkout_address_payload
@@ -76,7 +77,8 @@ module Api
         status: :ok
 
     rescue => e
-      render json: { error: "Failed to generate invoice: #{e.message}" }, status: :internal_server_error
+      Rails.logger.error("[OrdersController#download_invoice] #{e.class}: #{e.message}")
+      render json: { error: "Failed to generate invoice" }, status: :internal_server_error
     end
 
     def show
@@ -143,7 +145,8 @@ module Api
       result = OrderSettlementService.new(
         order: order,
         actor: current_user,
-        force: ActiveModel::Type::Boolean.new.cast(params[:force])
+        # Only an admin may skip the hold window; a dealer can release only once it is due.
+        force: current_admin.present? && ActiveModel::Type::Boolean.new.cast(params[:force])
       ).call
 
       render json: {
@@ -209,9 +212,18 @@ module Api
 
     def manageable_financial_orders
       return Order.all if current_admin
-      return Order.where(seller_dealer_id: current_dealer.id) if current_dealer
+      return Order.where(seller_dealer_id: current_dealer.id) if current_dealer && action_name != "refund"
 
       Order.none
+    end
+
+    def authorize_admin_orders_access!
+      return unless current_admin.present?
+
+      permission = %w[index show].include?(action_name) ? :read : :write
+      return if current_admin.can_access?(:orders, permission)
+
+      render json: { error: "You do not have permission to manage orders" }, status: :forbidden
     end
 
     def require_buyer!

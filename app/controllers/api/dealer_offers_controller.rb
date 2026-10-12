@@ -251,14 +251,14 @@ module Api
     private
 
     def optional_authenticate
-      token = request.headers["Authorization"]&.split(" ")&.last
+      token = bearer_token
       return if token.blank?
 
-      payload = JsonWebToken.decode(token)
-      return if payload.blank?
+      user, user_type, failure = resolve_session(token)
+      return if failure
 
-      @current_user_type = payload[:user_type]
-      @current_user = find_user(payload)
+      @current_user_type = user_type
+      @current_user = user
     rescue StandardError
       nil
     end

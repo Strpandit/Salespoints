@@ -1,6 +1,15 @@
 module Api
   class AdminUsersController < ApplicationController
     RESET_FLOW_TTL = 10.minutes
+    FORGOT_COOLDOWN = 60.seconds
+
+    # Per-IP ceilings against password / OTP guessing and OTP e-mail flooding.
+    rate_limit to: 10, within: 5.minutes, only: [:login, :login_otp], name: "admin-login", by: -> { client_ip },
+               with: -> { render json: { error: "Too many login attempts. Please try again later." }, status: :too_many_requests }
+    rate_limit to: 5, within: 10.minutes, only: [:forgot_password, :resend_signup_otp], name: "admin-otp-send", by: -> { client_ip },
+               with: -> { render json: { error: "Too many requests. Please try again later." }, status: :too_many_requests }
+    rate_limit to: 20, within: 10.minutes, only: [:otp_confirmation, :verify_otp, :reset_user_password], name: "admin-otp-verify", by: -> { client_ip },
+               with: -> { render json: { error: "Too many attempts. Please try again later." }, status: :too_many_requests }
 
     skip_before_action :authenticate_request!, only: [:login, :login_otp, :forgot_password, :otp_confirmation, :reset_user_password, :verify_otp, :resend_signup_otp, :check_signup_token]
     before_action :require_admin, except: [:login, :login_otp, :forgot_password, :otp_confirmation, :reset_user_password, :verify_otp, :resend_signup_otp, :check_signup_token]
@@ -255,7 +264,8 @@ module Api
 
     def admin_pincodes
       admin = AdminUser.find(params[:id])
-      
+      return forbidden("You can view only your own pincodes") unless current_admin.super_admin? || current_admin.id == admin.id
+
       render json: {
         admin_id: admin.id,
         admin_name: admin.full_name,
@@ -338,7 +348,15 @@ module Api
 
     def forgot_password
       admin = AdminUser.find_by(email: params[:email].to_s.strip.downcase, status: "active")
-      return unauthorized("Unable to process request") unless admin&.email.present?
+      # Same answer whether or not the admin exists; the placeholder id never matches a real record.
+      unless admin&.email.present?
+        return render json: { message: "OTP sent successfully", id: 900_000_000 + SecureRandom.random_number(99_999_999) }
+      end
+
+      # Inside the cooldown keep the OTP already sent instead of invalidating it on every request.
+      if admin.otp_sent_at&.after?(FORGOT_COOLDOWN.ago)
+        return render json: { message: "OTP sent successfully", id: admin.id }
+      end
 
       admin.update!(
         otp_pin: SecureRandom.random_number(1000..9999).to_s,
@@ -460,7 +478,9 @@ module Api
         password: params[:new_password],
         password_confirmation: params[:confirm_password]
       )
-        render json: { message: "Password changed successfully" }
+        # Sign out every other session; hand back a fresh token so this device stays signed in.
+        current_admin.revoke_tokens!
+        render json: { message: "Password changed successfully", token: JsonWebToken.issue_for(current_admin) }
       else
         render json: { error: current_admin.errors.full_messages }, status: :unprocessable_entity
       end

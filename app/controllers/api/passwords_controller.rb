@@ -47,10 +47,10 @@ module Api
       return render json: { error: "Password must be at least 8 characters" }, status: :unprocessable_entity if password.length < 8
 
       attrs = { password: password, password_confirmation: password, reset_password_token: nil, reset_password_sent_at: nil }
-      # Only finish an incomplete signup; never re-activate a blocked/banned account.
       attrs[:status] = "active" if account.pending?
 
       if account.update(attrs)
+        account.revoke_tokens!
         ActivityLogger.log_auth(actor: account, action: "reset_password", request: request)
         render json: { message: "Password updated. You can now log in with your new password." }
       else

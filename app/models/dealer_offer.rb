@@ -163,9 +163,10 @@ class DealerOffer < ApplicationRecord
       if dealer_product.present?
         begin
           dealer_product.with_lock do
-            if dealer_product.stock_quantity.to_i >= qty
-              dealer_product.update!(stock_quantity: dealer_product.stock_quantity.to_i - qty)
-            end
+            on_hand = dealer_product.stock_quantity.to_i
+            # Never skip the deduction (that left listing stock too high); clamp at zero and log the gap.
+            Rails.logger.warn("[DealerOffer##{id}] listing stock #{on_hand} < sold #{qty}; clamping to 0") if on_hand < qty
+            dealer_product.update!(stock_quantity: [on_hand - qty, 0].max)
           end
         rescue StandardError => e
           Rails.logger.warn("[DealerOffer##{id}] dealer_product stock sync skipped: #{e.message}")

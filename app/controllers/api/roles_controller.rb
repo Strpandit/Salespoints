@@ -4,6 +4,7 @@ module Api
     before_action :authorize_roles_read, only: [:index, :active_roles, :show, :modules]
     before_action :authorize_roles_write, only: [:create, :update, :deactivate, :reactivate, :destroy]
     before_action :find_role, only: [:show, :update, :deactivate, :reactivate, :destroy]
+    before_action :guard_privileged_role_changes, only: [:create, :update, :deactivate, :reactivate, :destroy]
 
     def index
       roles = Role.all
@@ -140,6 +141,37 @@ module Api
         normalized = Array(permissions).map(&:to_s).select { |perm| Role::ALLOWED_PERMISSIONS.include?(perm) }.uniq
         acc[module_name.to_s] = normalized if normalized.any?
       end
+    end
+
+    # Role names like "super_admin" / "sub admin" grant elevated rights (see AdminUser#super_admin?
+    # and #approver_admin?), so only a super admin may create, rename or touch them. A non-super
+    # admin also cannot edit a role they hold themselves or hand out modules they lack.
+    PRIVILEGED_ROLE_NAMES = ["super_admin", "super admin", "sub admin", "sub_admin"].freeze
+
+    def privileged_role_name?(name)
+      PRIVILEGED_ROLE_NAMES.include?(name.to_s.strip.downcase.squeeze(" "))
+    end
+
+    def guard_privileged_role_changes
+      return if current_admin.super_admin?
+
+      requested_name = params.dig(:role, :name)
+      touching_privileged = (@role && privileged_role_name?(@role.name)) || privileged_role_name?(requested_name)
+      return forbid_role_change("Only a super admin can manage this role") if touching_privileged
+
+      return forbid_role_change("You cannot modify a role assigned to you") if @role && current_admin.roles.exists?(id: @role.id)
+
+      if %w[create update].include?(action_name)
+        requested = normalize_module_permissions(params.dig(:role, :module_permissions))
+        excess = requested.select do |mod, perms|
+          perms.any? { |perm| !current_admin.can_access?(mod, perm) }
+        end
+        return forbid_role_change("You cannot grant permissions you do not have: #{excess.keys.join(', ')}") if excess.any?
+      end
+    end
+
+    def forbid_role_change(message)
+      render json: { error: message }, status: :forbidden
     end
 
     def find_role

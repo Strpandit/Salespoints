@@ -117,7 +117,8 @@ module Api
         password: params[:new_password],
         password_confirmation: params[:confirm_password]
       )
-        render json: { status: 200, message: "Password changed successfully" }, status: :ok
+        current_account.revoke_tokens!
+        render json: { status: 200, message: "Password changed successfully", token: JsonWebToken.issue_for(current_account) }, status: :ok
       else
         render json: { error: current_account.errors.full_messages }, status: :unprocessable_entity
       end
