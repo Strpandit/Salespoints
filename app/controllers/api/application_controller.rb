@@ -3,14 +3,60 @@ module Api
     include ActivityTrackable
 
     before_action :authenticate_request!
+    before_action :sanitize_paging_params
+
+    rescue_from ActionController::ParameterMissing do |e|
+      render json: { error: "Missing required parameter: #{e.param}" }, status: :bad_request
+    end
+    rescue_from ActionController::BadRequest, ActionDispatch::Http::Parameters::ParseError do |_e|
+      render json: { error: "Invalid request" }, status: :bad_request
+    end
+    rescue_from ActiveRecord::RecordNotFound do |_e|
+      render json: { error: "Record not found" }, status: :not_found
+    end
+    rescue_from ActiveRecord::RecordInvalid do |e|
+      render json: { error: e.record.errors.full_messages.to_sentence.presence || "Validation failed" }, status: :unprocessable_entity
+    end
+    rescue_from NoMethodError do |e|
+      raise e unless e.name == :permit && !e.receiver.is_a?(ActionController::Parameters)
+
+      render json: { error: "Invalid request body" }, status: :bad_request
+    end
+    rescue_from ActiveModel::RangeError, RangeError do |_e|
+      render json: { error: "Parameter out of range" }, status: :unprocessable_entity
+    end
 
     attr_reader :current_user, :current_user_type
 
     private
 
-    # Statuses that lose API access immediately, even with a token issued before the change.
-    # (Account "pending" and Dealer "pending" are left alone: pending accounts can hold a
-    # Google-login token, and login endpoints already keep non-active dealers out.)
+    def sanitize_paging_params
+      %i[page per_page].each do |key|
+        next unless params.key?(key)
+
+        value = params[key]
+        if value.is_a?(String) || value.is_a?(Numeric)
+          digits = value.to_s
+          params[key] = (key == :page ? "1000000" : "500") if digits.match?(/\A\d{10,}\z/)
+        else
+          params.delete(key)
+        end
+      end
+
+      params.delete(:per_page) if !strict_per_page? && params.key?(:per_page) && params[:per_page].to_s.match?(/\A-?\d+\z/) && params[:per_page].to_i <= 0
+
+      STRING_PARAM_KEYS.each do |key|
+        params.delete(key) if params.key?(key) && !(params[key].is_a?(String) || params[key].is_a?(Numeric) || params[key].nil?)
+      end
+    end
+    def strict_per_page?
+      false
+    end
+
+    STRING_PARAM_KEYS = %i[search q query email identifier pincode token reason brands ratings
+                           payment_reference platform otp recipient_email phone password current_password new_password
+                           confirm_password password_confirmation].freeze
+
     BLOCKED_STATUSES = {
       "Account" => %w[banned inactive],
       "Dealer" => %w[banned inactive rejected],
@@ -29,8 +75,6 @@ module Api
       @current_user = user
     end
 
-    # Real visitor IP for per-IP rate limits. Behind Cloudflare every request reaches us from a
-    # Cloudflare edge address, so prefer the header it sets; otherwise Rails' proxy-aware remote_ip.
     def client_ip
       request.headers["CF-Connecting-IP"].presence || request.remote_ip
     end
@@ -39,7 +83,6 @@ module Api
       request.headers["Authorization"]&.split(" ")&.last.presence
     end
 
-    # Returns [user, user_type, nil] for a usable session, otherwise [nil, nil, reason].
     def resolve_session(token)
       payload = JsonWebToken.decode(token)
       user = find_user(payload)
@@ -58,7 +101,6 @@ module Api
       BLOCKED_STATUSES.fetch(user.class.name, []).include?(user.status.to_s)
     end
 
-    # `code` lets web/mobile tell a dead session apart from other 401s (wrong password, bad OTP).
     def render_session_invalid(message)
       render json: { error: message, code: "session_invalid" }, status: :unauthorized
     end
@@ -142,7 +184,12 @@ module Api
       NoMethodError,
       TypeError,
       NameError,
-      JSON::ParserError
+      JSON::ParserError,
+      ZeroDivisionError,
+      FloatDomainError,
+      SocketError,
+      Timeout::Error,
+      OpenSSL::OpenSSLError
     ].freeze
 
     def render_error(e, status: :unprocessable_entity)
@@ -156,7 +203,7 @@ module Api
 
     def leaky_exception?(e)
       LEAKY_EXCEPTION_CLASSES.any? { |klass| e.is_a?(klass) } ||
-        e.class.name.to_s.start_with?("PG::", "Net::", "Errno::")
+        e.class.name.to_s.start_with?("PG::", "Net::", "Errno::", "Aws::", "Seahorse::", "HTTParty::", "JWT::")
     end
   end
 end

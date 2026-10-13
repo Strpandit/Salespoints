@@ -15,7 +15,7 @@ class OrderSerializer < ApplicationSerializer
   has_one :delivery_confirmation
 
   def items_count
-    object.order_items.sum(:quantity)
+    items_quantity
   end
 
   def subtotal_amount
@@ -79,7 +79,7 @@ class OrderSerializer < ApplicationSerializer
   end
 
   def total_items
-    object.total_items
+    items_quantity
   end
 
   def subtotal
@@ -117,6 +117,12 @@ class OrderSerializer < ApplicationSerializer
   end
 
   private
+
+  # Sum in memory when the items were preloaded (avoids a SUM query per order); otherwise in SQL.
+  def items_quantity
+    items = object.order_items
+    items.loaded? ? items.sum { |item| item.quantity.to_i } : items.sum(:quantity)
+  end
 
   def admin_viewer?
     options[:viewer] == :admin

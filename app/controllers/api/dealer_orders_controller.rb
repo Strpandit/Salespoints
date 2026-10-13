@@ -92,8 +92,10 @@ module Api
         orders = orders.sort_by { |o| o[:created_at].to_s }.reverse
       end
       
-      page = (params[:page] || 1).to_i
+      page = (params[:page] || 1).to_i.clamp(1, 1_000_000)
       per_page = (params[:per_page] || 20).to_i
+      per_page = 20 if per_page <= 0
+      per_page = [per_page, 500].min
       total_count = orders.length
       paginated = orders[(page - 1) * per_page, per_page] || []
       
@@ -111,8 +113,6 @@ module Api
       }, status: :ok
     end
 
-    # Retail and B2B ids overlap: clients pass order_type (retail|b2b) to pick the right table.
-    # Without it (older app builds) the previous B2B-first lookup is kept.
     def show
       order_id = params[:id].to_i
       order_type = params[:order_type].to_s

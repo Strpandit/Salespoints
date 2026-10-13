@@ -264,6 +264,8 @@ class PushNotificationService
 
     http = Net::HTTP.new(uri.host, uri.port)
     http.use_ssl = true
+    http.open_timeout = 5
+    http.read_timeout = 10
     res = http.request(req)
 
     if res.is_a?(Net::HTTPSuccess)

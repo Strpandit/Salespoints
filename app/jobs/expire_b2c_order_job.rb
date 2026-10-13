@@ -9,12 +9,28 @@ class ExpireB2cOrderJob < ApplicationJob
 
     return if order.expires_at.present? && order.expires_at > Time.current
 
-    order.update!(
-      status: "cancelled",
-      payment_status: "failed",
-      status_note: "No seller accepted the order within time",
-      cancelled_at: Time.current
-    )
+    expired = false
+    order.with_lock do
+      next unless order.status == "pending" && order.seller_dealer_id.blank?
+
+      refunded = order.payment_status == "paid" && InstantOrderRefundService.process_refund!(
+        order: order,
+        reason: "No seller accepted the order within time"
+      )
+
+      order.update!(
+        status: "cancelled",
+        payment_status: (order.payment_status == "paid" || refunded) ? order.payment_status : "failed",
+        status_note: [
+          (refunded ? order.status_note : nil),
+          "No seller accepted the order within time",
+          (order.payment_status == "paid" ? "Paid online but refund could not be issued automatically - needs manual refund" : nil)
+        ].compact.join(" | "),
+        cancelled_at: Time.current
+      )
+      expired = true
+    end
+    return unless expired
 
     order.order_offers.open_state.update_all(
       status: "expired",

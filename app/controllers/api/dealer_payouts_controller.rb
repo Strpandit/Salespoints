@@ -7,7 +7,13 @@ module Api
         end
       end
 
-      payouts = apply_filters(scoped_payouts).recent.page(params[:page]).per(params[:per_page] || 20)
+      filtered = apply_filters(scoped_payouts)
+      return if performed?
+
+      per_page = params[:per_page].to_i
+      per_page = 20 if per_page <= 0
+      per_page = [per_page, 100].min
+      payouts = filtered.recent.page(params[:page]).per(per_page)
 
       summary_meta = {}
       if current_dealer.present?
@@ -239,20 +245,34 @@ module Api
                        "dealer_payouts.payment_reference ILIKE :q OR " \
                        "dealers.first_name ILIKE :q OR " \
                        "dealers.last_name ILIKE :q OR " \
-                       "dealers.dealer_code ILIKE :q",
+                       "dealers.dealer_code ILIKE :q OR "                        "(dealer_payouts.requestable_type = 'Order' AND dealer_payouts.requestable_id IN (SELECT orders.id FROM orders WHERE orders.order_number ILIKE :q)) OR "                        "(dealer_payouts.requestable_type = 'B2bOrder' AND dealer_payouts.requestable_id IN (SELECT b2b_orders.id FROM b2b_orders WHERE b2b_orders.reference_number ILIKE :q)) OR "                        "dealer_payouts.dealer_id IN (SELECT dealer_profiles.dealer_id FROM dealer_profiles WHERE dealer_profiles.business_name ILIKE :q)",
                        q: query
                      )
       end
 
-      if params[:start_date].present?
-        scope = scope.where("dealer_payouts.created_at >= ?", Time.zone.parse(params[:start_date]).beginning_of_day)
+      start_date = parse_filter_date(params[:start_date], "start_date")
+      return nil if performed?
+      end_date = parse_filter_date(params[:end_date], "end_date")
+      return nil if performed?
+
+      if start_date && end_date && start_date > end_date
+        render json: { error: "start_date must not be after end_date" }, status: :unprocessable_entity
+        return nil
       end
 
-      if params[:end_date].present?
-        scope = scope.where("dealer_payouts.created_at <= ?", Time.zone.parse(params[:end_date]).end_of_day)
-      end
+      scope = scope.where("dealer_payouts.created_at >= ?", start_date.beginning_of_day) if start_date
+      scope = scope.where("dealer_payouts.created_at <= ?", end_date.end_of_day) if end_date
 
       scope
+    end
+
+    def parse_filter_date(value, name)
+      return nil if value.blank?
+
+      Time.zone.parse(value.to_s) || raise(ArgumentError)
+    rescue ArgumentError, TypeError
+      render json: { error: "Invalid #{name}: expected a valid date (YYYY-MM-DD)" }, status: :unprocessable_entity
+      nil
     end
 
     def handle_admin_transition!(payout)
@@ -274,6 +294,12 @@ module Api
           service.mark_processing!(payout: payout, admin: current_admin, note: params[:admin_note])
         end
       when "paid"
+        if params[:payment_reference].to_s.strip.blank?
+          raise ArgumentError, "Payment reference is required to mark a payout as paid"
+        end
+        if params[:penalty].present? && !valid_penalty?(params[:penalty])
+          raise ArgumentError, "Penalty must be a valid number"
+        end
         service.mark_paid!(
           payout: payout,
           admin: current_admin,
@@ -288,6 +314,11 @@ module Api
       else
         raise StandardError, "Invalid admin payout action"
       end
+    end
+
+    def valid_penalty?(value)
+      num = BigDecimal(value.to_s.strip, exception: false)
+      !num.nil? && num.finite?
     end
 
     def handle_dealer_transition!(payout)

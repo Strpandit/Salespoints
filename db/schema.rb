@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.0].define(version: 2026_10_09_000001) do
+ActiveRecord::Schema[8.0].define(version: 2026_10_13_000002) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -286,12 +286,14 @@ ActiveRecord::Schema[8.0].define(version: 2026_10_09_000001) do
     t.index ["broadcast_attempts"], name: "index_b2b_orders_on_broadcast_attempts"
     t.index ["buyer_dealer_id"], name: "index_b2b_orders_on_buyer_dealer_id"
     t.index ["buyer_payment_attempt_id"], name: "index_b2b_orders_on_buyer_payment_attempt_id"
+    t.index ["created_at"], name: "idx_b2b_orders_on_created_at"
     t.index ["current_broadcast_radius"], name: "index_b2b_orders_on_current_broadcast_radius"
     t.index ["gateway_order_reference"], name: "idx_b2b_orders_on_gateway_order_reference"
     t.index ["invoice_number"], name: "index_b2b_orders_on_invoice_number", unique: true
     t.index ["is_direct_buy"], name: "index_b2b_orders_on_is_direct_buy"
     t.index ["payment_method"], name: "index_b2b_orders_on_payment_method"
     t.index ["payment_reference"], name: "idx_b2b_orders_on_payment_reference"
+    t.index ["payment_session_id"], name: "idx_b2b_orders_on_payment_session_id"
     t.index ["payment_status"], name: "index_b2b_orders_on_payment_status"
     t.index ["payment_token"], name: "index_b2b_orders_on_payment_token", unique: true
     t.index ["reference_number"], name: "index_b2b_orders_on_reference_number", unique: true
@@ -575,6 +577,7 @@ ActiveRecord::Schema[8.0].define(version: 2026_10_09_000001) do
     t.text "bank_change_reason"
     t.datetime "bank_change_reviewed_at"
     t.integer "bank_change_reviewed_by_id"
+    t.text "bank_change_rejection_reason"
     t.index ["bank_change_reviewed_by_id"], name: "index_dealer_profiles_on_bank_change_reviewed_by_id"
     t.index ["bank_change_status"], name: "index_dealer_profiles_on_bank_change_status"
     t.index ["bank_verification_reference"], name: "index_dealer_profiles_on_bank_verification_reference"
@@ -728,6 +731,7 @@ ActiveRecord::Schema[8.0].define(version: 2026_10_09_000001) do
     t.datetime "sent_at"
     t.index ["notifiable_type", "notifiable_id"], name: "index_notifications_on_notifiable"
     t.index ["read_at"], name: "index_notifications_on_read_at"
+    t.index ["receiver_type", "receiver_id", "created_at"], name: "idx_notifications_on_receiver_and_created_at"
     t.index ["receiver_type", "receiver_id"], name: "index_notifications_on_receiver"
   end
 
@@ -851,6 +855,7 @@ ActiveRecord::Schema[8.0].define(version: 2026_10_09_000001) do
     t.decimal "convenience_fee_gst", precision: 12, scale: 2, default: "0.0", null: false
     t.decimal "total_convenience_fee", precision: 12, scale: 2, default: "0.0", null: false
     t.index ["buyer_type", "buyer_id"], name: "index_orders_on_buyer_type_and_buyer_id"
+    t.index ["created_at"], name: "idx_orders_on_created_at"
     t.index ["dealer_offer_id"], name: "index_orders_on_dealer_offer_id"
     t.index ["expires_at"], name: "index_orders_on_expires_at"
     t.index ["gateway_order_reference"], name: "index_orders_on_gateway_order_reference"
@@ -858,6 +863,7 @@ ActiveRecord::Schema[8.0].define(version: 2026_10_09_000001) do
     t.index ["order_number"], name: "index_orders_on_order_number", unique: true
     t.index ["payment_reference"], name: "index_orders_on_payment_reference"
     t.index ["refund_status"], name: "index_orders_on_refund_status"
+    t.index ["seller_dealer_id", "created_at"], name: "idx_orders_on_seller_dealer_and_created_at"
     t.index ["settlement_due_at"], name: "index_orders_on_settlement_due_at"
     t.index ["settlement_status"], name: "index_orders_on_settlement_status"
     t.index ["status"], name: "index_orders_on_status"

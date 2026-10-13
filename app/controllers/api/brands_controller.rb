@@ -36,7 +36,7 @@ module Api
 
       if params[:search].present?
         q = "%#{params[:search].strip}%"
-        all_brands = all_brands.where("name ILIKE ?", q)
+        all_brands = all_brands.where("brands.name ILIKE ?", q)
       end
 
       case params[:sort_by]
@@ -108,9 +108,12 @@ module Api
     end
 
     def destroy
-      notify_admins_entity_deleted(@brand)
-      @brand.destroy
-      render json: { message: "Brand deleted successfully" }, status: :ok
+      if @brand.destroy
+        notify_admins_entity_deleted(@brand)
+        render json: { message: "Brand deleted successfully" }, status: :ok
+      else
+        render json: { error: @brand.errors.full_messages.presence || ["Brand could not be deleted"] }, status: :unprocessable_entity
+      end
     end
 
     private
@@ -125,7 +128,8 @@ module Api
     end
 
     def check_permission
-      unless current_admin.can_access?(:brands)
+      permission = action_name == "all_brands" ? :read : :write
+      unless current_admin.can_access?(:brands, permission)
         render json: { error: "You do not have permission to manage brands"}, status: :forbidden
       end
     end

@@ -2,6 +2,7 @@ require 'csv'
 module Api
   class AnalyticsController < ApplicationController
     before_action :authorize_analytics_access
+    before_action :validate_date_params
 
     # ─── ADMIN DASHBOARD ───────────────────────────────────────────────────────
     def dashboard
@@ -390,11 +391,33 @@ module Api
 
     private
 
-    # Platform-wide numbers are for admins only; a dealer gets just their own dashboard.
+    def validate_date_params
+      %w[start_date end_date].each do |key|
+        next if params[key].blank?
+
+        parsed = begin
+          Time.zone.parse(params[key].to_s)
+        rescue ArgumentError
+          nil
+        end
+        next if parsed
+
+        return render json: { success: false, error: "Invalid #{key}: expected a valid date (YYYY-MM-DD)" }, status: :unprocessable_entity
+      end
+    end
+
     DEALER_ACTIONS = %w[dealer_dashboard].freeze
 
+    SHARED_DASHBOARD_ACTIONS = %w[dashboard real_time].freeze
+
     def authorize_analytics_access
-      return if current_admin
+      if current_admin
+        return if current_admin.can_access?(:analytics, :read)
+        return if SHARED_DASHBOARD_ACTIONS.include?(action_name) &&
+                  ENV.fetch("ENFORCE_ANALYTICS_PERMISSION_ON_DASHBOARD", "false") != "true"
+
+        return render json: { success: false, error: "You do not have permission to view analytics" }, status: :forbidden
+      end
       return if current_dealer && DEALER_ACTIONS.include?(action_name)
 
       render json: { success: false, error: "Access denied" }, status: :forbidden
@@ -659,12 +682,14 @@ module Api
       b2c_query = b2c_scope || Order.all
       b2b_query = b2b_scope || B2bOrder.all
 
-      b2c = b2c_query.order(created_at: :desc).limit(15).map do |o|
-        buyer_name = if o.buyer_type == "Dealer"
-                       Dealer.find_by(id: o.buyer_id)&.full_name || Dealer.find_by(id: o.buyer_id)&.email
-                     else
-                       Account.find_by(id: o.buyer_id)&.full_name || Account.find_by(id: o.buyer_id)&.email
-                     end
+      b2c_rows = b2c_query.order(created_at: :desc).limit(15).to_a
+      b2c_item_counts = OrderItem.where(order_id: b2c_rows.map(&:id)).group(:order_id).count
+      b2c_dealers = Dealer.where(id: b2c_rows.select { |o| o.buyer_type == "Dealer" }.map(&:buyer_id)).index_by(&:id)
+      b2c_accounts = Account.where(id: b2c_rows.reject { |o| o.buyer_type == "Dealer" }.map(&:buyer_id)).index_by(&:id)
+
+      b2c = b2c_rows.map do |o|
+        buyer = o.buyer_type == "Dealer" ? b2c_dealers[o.buyer_id] : b2c_accounts[o.buyer_id]
+        buyer_name = buyer&.full_name || buyer&.email
         {
           id:           o.order_number,
           order_number: o.order_number,
@@ -673,11 +698,14 @@ module Api
           status:       o.status,
           date:         o.created_at,
           type:         "B2C",
-          items:        (o.order_items.count rescue 1)
+          items:        b2c_item_counts[o.id].to_i
         }
       end
 
-      b2b = b2b_query.order(created_at: :desc).limit(15).map do |o|
+      b2b_rows = b2b_query.order(created_at: :desc).limit(15).includes(buyer_dealer: :dealer_profile).to_a
+      b2b_item_counts = B2bOrderItem.where(b2b_order_id: b2b_rows.map(&:id)).group(:b2b_order_id).count
+
+      b2b = b2b_rows.map do |o|
         buyer_name = o.buyer_dealer&.dealer_profile&.business_name || o.buyer_dealer&.full_name || "Dealer"
         {
           id:           o.reference_number,
@@ -687,7 +715,7 @@ module Api
           status:       o.status,
           date:         o.created_at,
           type:         "B2B",
-          items:        (o.b2b_order_items.count rescue 1)
+          items:        b2b_item_counts[o.id].to_i
         }
       end
 
@@ -695,10 +723,18 @@ module Api
     end
 
     # ─── DATE HELPERS ──────────────────────────────────────────────────────────
+    def safe_parse_time(value)
+      return nil if value.blank?
+
+      Time.zone.parse(value.to_s)
+    rescue ArgumentError
+      nil
+    end
+
     def date_range_for(period)
       if params[:start_date].present? || params[:end_date].present?
-        start_t = params[:start_date].present? ? Time.zone.parse(params[:start_date].to_s).beginning_of_day : 10.years.ago
-        end_t = params[:end_date].present? ? Time.zone.parse(params[:end_date].to_s).end_of_day : Time.current.end_of_day
+        start_t = safe_parse_time(params[:start_date])&.beginning_of_day || 10.years.ago
+        end_t = safe_parse_time(params[:end_date])&.end_of_day || Time.current.end_of_day
         return start_t..end_t
       end
 

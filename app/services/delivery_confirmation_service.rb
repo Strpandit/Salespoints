@@ -44,6 +44,8 @@ class DeliveryConfirmationService
 
   def submit_form!(confirmation:, declarations:, notes:, serial_numbers:, files:)
     @confirmation = confirmation
+    # Re-submitting a completed proof would reopen it (new buyer OTP, status back to pending_otp).
+    raise StandardError, "Delivery has already been confirmed" if confirmation.completed?
     ensure_required_declarations!(declarations)
     ensure_required_files!(files)
     ensure_serial_numbers_match!(serial_numbers)
@@ -83,6 +85,12 @@ class DeliveryConfirmationService
     raise StandardError, "Invalid buyer OTP" unless confirmation.buyer_otp_valid?(buyer_otp)
 
     ActiveRecord::Base.transaction do
+      # Two simultaneous verifications with the same OTP must not both run the delivery side effects.
+      confirmation.lock!
+      @deliverable.reload if @deliverable.respond_to?(:reload) && @deliverable.persisted?
+      raise StandardError, "Invalid buyer OTP" unless confirmation.completed? || confirmation.buyer_otp_valid?(buyer_otp)
+      return confirmation if confirmation.completed? && confirmation.buyer_otp_verified_at.present?
+
       confirmation.update!(
         buyer_otp_verified_at: confirmation.buyer_otp_verified_at || Time.current,
         seller_otp: nil,

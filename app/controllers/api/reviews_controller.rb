@@ -1,9 +1,13 @@
 module Api
   class ReviewsController < ApplicationController
     skip_before_action :authenticate_request!, only: [:index]
-    before_action :set_reviewable, only: [:index, :create]
+    before_action :set_reviewable, only: [:index, :create], unless: :admin_listing?
 
+    # Without a product it is the admin moderation list (every review, newest first); with a product or
+    # dealer product it stays the public per-product list.
     def index
+      return admin_index if admin_listing?
+
       if @reviewable.present?
         reviews = @reviewable.reviews.order(created_at: :desc)
         paginated = reviews.page(params[:page]).per(params[:per_page] || 20)
@@ -54,6 +58,53 @@ module Api
     end
 
     private
+
+    def admin_listing?
+      action_name == "index" && params[:product_id].blank? && params[:dealer_product_id].blank?
+    end
+
+    def admin_index
+      authenticate_request!
+      return if performed?
+
+      unless current_admin&.can_access?(:reviews)
+        return render json: { error: "You do not have permission to view reviews" }, status: :forbidden
+      end
+
+      reviews = Review.includes(:account, :product, :dealer_product).order(created_at: :desc)
+      paginated = reviews.page(params[:page]).per((params[:per_page] || 20).to_i.clamp(1, 100))
+
+      render json: {
+        data: paginated.map { |review| admin_review_payload(review) },
+        meta: {
+          current_page: paginated.current_page,
+          next_page: paginated.next_page,
+          prev_page: paginated.prev_page,
+          total_pages: paginated.total_pages,
+          total_count: paginated.total_count
+        },
+        message: "Reviews fetched successfully"
+      }, status: :ok
+    end
+
+    def admin_review_payload(review)
+      product = review.product || review.dealer_product&.product
+      {
+        id: review.id,
+        title: review.title,
+        comment: review.comment,
+        rating: review.rating,
+        verified: review.verified,
+        created_at: review.created_at,
+        account: review.account && {
+          id: review.account.id,
+          full_name: review.account.full_name.presence || "Anonymous",
+          email: review.account.email
+        },
+        product: product && { id: product.id, name: product.name },
+        dealer_product: review.dealer_product && { id: review.dealer_product.id, name: review.dealer_product.product&.name }
+      }
+    end
 
     def set_reviewable
       if params[:product_id].present?

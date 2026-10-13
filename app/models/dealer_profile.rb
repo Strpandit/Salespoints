@@ -17,6 +17,12 @@ class DealerProfile < ApplicationRecord
   validates :bank_change_status, inclusion: { in: BANK_CHANGE_STATUSES }, allow_nil: true
   validate :attachments_validity
 
+  validates :pan_number, format: { with: /\A[A-Z]{5}[0-9]{4}[A-Z]\z/, message: "must be in the format ABCDE1234F" }, allow_blank: true, if: :will_save_change_to_pan_number?
+  validates :gst_number, format: { with: /\A[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]\z/, message: "must be a valid 15-character GSTIN" }, allow_blank: true, if: :will_save_change_to_gst_number?
+  validates :ifsc_code, format: { with: /\A[A-Z]{4}0[A-Z0-9]{6}\z/, message: "must be in the format SBIN0001234" }, allow_blank: true, if: :will_save_change_to_ifsc_code?
+  validates :bank_account_number, format: { with: /\A[0-9]{9,18}\z/, message: "must be 9 to 18 digits" }, allow_blank: true, if: :will_save_change_to_bank_account_number?
+  before_validation :normalize_identity_fields
+
   def bank_verified?
     bank_verification_status == "verified" &&
       bank_verified_at.present? &&
@@ -43,6 +49,13 @@ class DealerProfile < ApplicationRecord
   end
 
   private
+
+  def normalize_identity_fields
+    self.pan_number = pan_number.to_s.gsub(/\s+/, "").upcase.presence if pan_number_changed?
+    self.gst_number = gst_number.to_s.gsub(/\s+/, "").upcase.presence if gst_number_changed?
+    self.ifsc_code = ifsc_code.to_s.gsub(/\s+/, "").upcase.presence if ifsc_code_changed?
+    self.bank_account_number = bank_account_number.to_s.gsub(/\s+/, "").presence if bank_account_number_changed?
+  end
 
   def attachments_validity
     validate_attachment_set(:store_image, required: new_record?)

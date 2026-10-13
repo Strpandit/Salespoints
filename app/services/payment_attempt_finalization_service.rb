@@ -17,16 +17,96 @@ class PaymentAttemptFinalizationService
       return handle_processed_attempt(attempt)
     end
 
+    # Opt-in (BLOCK_PAYMENT_AMOUNT_MISMATCH=true): never finalise a payment held for amount review.
+    return Result.new(orders: [], b2b_order: nil) if PaymentAmountGuard.held_attempt?(attempt)
+
+    # A webhook/poll can flip an already auto-refunded attempt back to "paid"; keep it refunded.
+    if checkout_context == "b2b_order" && auto_refund_completed?(attempt)
+      attempt.update!(status: "failed") unless attempt.status == "failed"
+      raise StandardError, "Payment was refunded because the order could not be fulfilled (#{attempt.result_payload.dig('auto_refund', 'reason')})"
+    end
+
     raise StandardError, "Payment is not marked as paid" unless attempt.paid?
 
     if checkout_context == "b2b_order"
-      finalize_b2b_order!(attempt)
+      begin
+        finalize_b2b_order!(attempt)
+      rescue StandardError => e
+        # The transaction has rolled back, so the buyer has paid but no order exists. Give the money back.
+        auto_refund_stock_failure!(attempt, e) if e.message.start_with?("Insufficient stock")
+        raise
+      end
     else
       finalize_retail_orders!(attempt)
     end
   end
 
   private
+
+  def auto_refund_completed?(attempt)
+    (attempt.result_payload || {}).dig("auto_refund", "status") == "completed"
+  end
+
+  # B2B online payment succeeded but stock ran out before the order could be created. Refund the full
+  # attempt amount once (deterministic refund id + stamp under the attempt lock => idempotent).
+  def auto_refund_stock_failure!(attempt, error)
+    PaymentAttempt.transaction do
+      locked = PaymentAttempt.lock.find(attempt.id)
+      return if locked.processed? || auto_refund_completed?(locked)
+
+      refund_id = "REFUND-ATT-#{locked.id}"
+      reference = locked.gateway_order_reference.presence || locked.attempt_number
+      reason = "Order could not be created: #{error.message}"
+      refund = CashfreeService.new.create_refund(
+        order_reference: reference,
+        refund_id: refund_id,
+        amount: locked.amount,
+        note: reason.first(100)
+      )
+
+      locked.update!(
+        status: "failed",
+        failure_reason: "Auto-refunded: #{error.message}".first(250),
+        failed_at: Time.current,
+        result_payload: (locked.result_payload || {}).merge(
+          "auto_refund" => {
+            "status" => "completed",
+            "refund_id" => refund_id,
+            "amount" => locked.amount.to_f,
+            "reason" => error.message,
+            "refunded_at" => Time.current.iso8601,
+            "gateway_response" => refund
+          }
+        )
+      )
+
+      request_order_id = (locked.result_payload["request_metadata"] || {})["request_order_id"]
+      B2bOrder.find_by(id: request_order_id)&.then do |o|
+        o.update_columns(status_note: [o.status_note, "Online payment auto-refunded (#{refund_id}): #{error.message}"].compact.join(" | "))
+      end
+    end
+  rescue StandardError => refund_error
+    # Leave the attempt "paid" (today's behaviour) so a later retry can refund; tell admins.
+    Rails.logger.error("[PaymentAttemptFinalizationService] auto-refund failed for attempt #{attempt.id}: #{refund_error.message}")
+    notify_refund_failure(attempt, error, refund_error)
+  end
+
+  def notify_refund_failure(attempt, error, refund_error)
+    AdminUser.where(is_super_admin: true).find_each do |admin|
+      NotificationService.deliver(
+        recipient: admin,
+        actor: nil,
+        notifiable: attempt,
+        kind: "admin_payment_amount_mismatch",
+        title: "Manual refund needed",
+        message: "B2B payment #{attempt.attempt_number} (Rs #{attempt.amount}) succeeded but the order failed (#{error.message}) and the automatic refund failed (#{refund_error.message}).",
+        visible_in_app: true,
+        delivery_channels: { push: true, whatsapp: false, sms: false, email: true, in_app: true }
+      )
+    end
+  rescue StandardError => e
+    Rails.logger.error("[PaymentAttemptFinalizationService] failed to notify admins: #{e.message}")
+  end
 
   def handle_processed_attempt(attempt)
     if checkout_context == "b2b_order"
@@ -147,6 +227,14 @@ class PaymentAttemptFinalizationService
 
       if OfferMartPaymentService.offer_order?(order)
         OfferMartPaymentService.confirm_paid!(order)
+        orders << order.reload
+        next
+      end
+
+      if order.cancelled?
+        # Payment landed after the order expired/was cancelled: nobody will fulfil it, so give the money back
+        # instead of keeping a paid, cancelled order.
+        InstantOrderRefundService.process_refund!(order: order, reason: "Payment received after the order was cancelled or expired")
         orders << order.reload
         next
       end

@@ -164,6 +164,17 @@ class DealerPayoutService
     payout = nil
 
     Dealer.transaction do
+      # Serialise concurrent payout requests for this dealer: eligibility/claimed-order checks below
+      # read committed payouts, so without this lock two simultaneous requests can claim the same orders.
+      Dealer.lock.find(@dealer.id)
+      if invoice_number.present?
+        dup_invoice = @dealer.dealer_payouts
+                             .where("LOWER(TRIM(invoice_number)) = ?", invoice_number.to_s.strip.downcase)
+                             .where(status: ACTIVE_PAYOUT_STATUSES)
+                             .exists?
+        raise StandardError, "Invoice number '#{invoice_number.to_s.strip}' has already been submitted for an active or completed payout request." if dup_invoice
+      end
+
       if target_orders.any?
         total_gross = 0.to_d
         total_commission = 0.to_d
@@ -229,7 +240,12 @@ class DealerPayoutService
         raise StandardError, "Payout amount must be greater than 0" unless value.positive?
 
         summary = summary_balances
-        raise StandardError, "Insufficient available balance" if value > BigDecimal(summary[:available_balance].to_s)
+        # Amount-only payouts do not claim orders, so the eligible-order balance never shrinks; deduct
+        # earlier amount-only requests explicitly or the same balance could be withdrawn repeatedly.
+        already_requested = @dealer.dealer_payouts.where(status: ACTIVE_PAYOUT_STATUSES).select do |p|
+          p.requestable_id.blank? && !(p.metadata || {})["selected_orders"].is_a?(Array) && !payout_is_cod?(p)
+        end.sum { |p| p.amount.to_d }
+        raise StandardError, "Insufficient available balance" if value > BigDecimal(summary[:available_balance].to_s) - already_requested
 
         payout = DealerPayout.create!(
           dealer: @dealer,
@@ -296,14 +312,20 @@ class DealerPayoutService
 
     Dealer.transaction do
       locked_payout = DealerPayout.lock.find(payout.id)
+      # Re-check under the row lock: the pre-lock check above can be stale when two requests
+      # (admin double-click, admin + Cashfree webhook) race, which would debit the ledger twice.
+      unless locked_payout.status.in?(%w[pending approved processing])
+        raise StandardError, "Only pending, approved or processing payouts can be paid"
+      end
+
       locked_dealer = Dealer.lock.find(locked_payout.dealer_id)
 
       adjusted_cod_total = 0.to_d
       adjusted_cod_payouts = []
 
       if adjusted_cod_payout_ids.present?
-        cod_ids = Array(adjusted_cod_payout_ids).map(&:to_i).reject(&:zero?).uniq
-        adjusted_cod_payouts = locked_dealer.dealer_payouts.where(id: cod_ids, status: %w[pending approved processing]).to_a
+        cod_ids = Array(adjusted_cod_payout_ids).map(&:to_i).reject(&:zero?).uniq - [locked_payout.id]
+        adjusted_cod_payouts = locked_dealer.dealer_payouts.lock.where(id: cod_ids, status: %w[pending approved processing]).to_a
         
         adjusted_cod_payouts.each do |cod_p|
           adjusted_cod_total += cod_p.amount.to_d
@@ -316,6 +338,11 @@ class DealerPayoutService
       disburse_desc = "Payout disbursed for request #{locked_payout.request_number}"
       disburse_desc += " (Penalty deducted: ₹#{penalty_val})" if penalty_val.positive?
       disburse_desc += " (COD Platform Fee Adjusted: ₹#{adjusted_cod_total})" if adjusted_cod_total.positive?
+
+      # Earned-money credit first (same transaction + dealer row lock), so the disbursement debit below
+      # nets to zero instead of driving settlement_balance negative. Idempotent per payout; COD fee
+      # payouts are never credited. LEDGER_CREDIT_ON_PAYOUT=false restores the old behaviour exactly.
+      credit_ledger_for_payout!(locked_payout, locked_dealer, final_amount)
 
       DealerLedgerService.debit!(
         dealer: locked_dealer,
@@ -385,11 +412,20 @@ class DealerPayoutService
   end
 
   def mark_failed!(payout:, admin:, note:)
-    payout.update!(
-      status: "failed",
-      processed_by_admin: admin,
-      admin_note: [payout.admin_note, note].compact.join("\n").presence
-    )
+    # A paid payout already debited the ledger; flipping it to failed here would orphan that debit
+    # (and let the same orders be requested again), so only in-flight payouts may fail.
+    DealerPayout.transaction do
+      locked = DealerPayout.lock.find(payout.id)
+      unless locked.status.in?(%w[pending approved processing])
+        raise StandardError, "Only pending, approved or processing payouts can be marked failed"
+      end
+
+      locked.update!(
+        status: "failed",
+        processed_by_admin: admin,
+        admin_note: [locked.admin_note, note].compact.join("\n").presence
+      )
+    end
     DealerPayoutNotificationService.status_updated!(payout.reload, actor: admin) rescue nil
   end
 
@@ -424,12 +460,69 @@ class DealerPayoutService
     }
   end
 
+  LEDGER_CREDIT_KEY_PREFIX = "payout:".freeze
+
+  def self.ledger_credit_on_payout?
+    ENV.fetch("LEDGER_CREDIT_ON_PAYOUT", "true").to_s.strip.downcase != "false"
+  end
+
+  def self.ledger_credit_key_for(payout)
+    "#{LEDGER_CREDIT_KEY_PREFIX}#{payout.id}"
+  end
+
+  # True when a settlement credit already exists for this payout.
+  def ledger_credit_exists_for_payout?(payout)
+    DealerLedgerEntry.where(
+      dealer_id: payout.dealer_id,
+      direction: "credit",
+      entry_type: "order_settlement"
+    ).where("metadata ->> 'settlement_credit_key' = ?", self.class.ledger_credit_key_for(payout)).exists?
+  end
+
+  # Amount to credit so the payout's debit nets to zero, minus anything OrderSettlementService already
+  # credited for the payout's own B2C orders (guards against double-crediting those orders).
+  def payout_settlement_credit_amount(payout, debit_amount)
+    amount = BigDecimal(debit_amount.to_s).round(2)
+    selected = (payout.metadata || {})["selected_orders"]
+    order_ids =
+      if selected.is_a?(Array) && selected.any?
+        selected.filter_map do |item|
+          otype = (item["order_type"] || item[:order_type] || "order").to_s.downcase
+          next if otype.in?(%w[b2b b2b_order wholesale])
+
+          (item["order_id"] || item[:order_id] || item["id"]).presence
+        end
+      elsif payout.requestable_type == "Order"
+        [payout.requestable_id]
+      else
+        []
+      end
+    if order_ids.any?
+      already = DealerLedgerEntry.where(
+        dealer_id: payout.dealer_id, entry_type: "order_settlement", direction: "credit", order_id: order_ids
+      ).where("metadata ->> 'settlement_credit_key' IS NULL").sum(:amount).to_d
+      amount -= already
+    end
+    [amount, 0.to_d].max.round(2)
+  end
+
   def ensure_requestable_settlement_balance!(payout:, dealer:)
     payout_amount = payout.amount.to_d
     settlement_balance = dealer.reload.settlement_balance.to_d
 
     raise StandardError, "Dealer settlement balance is insufficient" if payout_amount > settlement_balance
 
+    true
+  end
+
+  # Validates a payout that is about to be disbursed (Cashfree) against the same "live available"
+  # figures request! validated it against (eligible order earnings), NOT against the ledger
+  # settlement_balance (which is never credited for new orders, so it cannot back a payout).
+  # Read-only: does not touch the ledger.
+  def ensure_requestable_payout_amount!(payout:, dealer: nil)
+    dealer ||= @dealer
+    service = dealer == @dealer ? self : self.class.new(dealer: dealer)
+    service.send(:validate_payout_amount_against_live_earnings!, payout)
     true
   end
 
@@ -507,6 +600,53 @@ class DealerPayoutService
 
   private
 
+  PAYOUT_AMOUNT_TOLERANCE = BigDecimal("0.01")
+
+  def validate_payout_amount_against_live_earnings!(payout)
+    amount = payout.amount.to_d.round(2)
+    raise StandardError, "Payout amount must be greater than 0" unless amount.positive?
+    raise StandardError, "COD platform fee payouts cannot be disbursed via Cashfree" if payout_is_cod?(payout)
+
+    selected = (payout.metadata || {})["selected_orders"]
+    if selected.is_a?(Array) && selected.any?
+      # Order-based payout: amount was the net of the selected orders at request time.
+      available = selected_orders_net_amount(selected)
+    elsif payout.requestable.present?
+      available = selected_orders_net_amount([{ "order_id" => payout.requestable_id, "order_type" => (payout.requestable.is_a?(Order) ? "order" : "b2b_order") }])
+    else
+      # Amount-only payout: same rule request! applies (eligible online net minus earlier amount-only requests).
+      eligible_online_net = eligible_orders
+        .select { |r| r[:payment_method].to_s.downcase != "cod" }
+        .sum { |r| BigDecimal(r[:net_payout_amount].to_s) }
+      other_requested = @dealer.dealer_payouts.where(status: ACTIVE_PAYOUT_STATUSES).where.not(id: payout.id).select do |p|
+        p.requestable_id.blank? && !(p.metadata || {})["selected_orders"].is_a?(Array) && !payout_is_cod?(p)
+      end.sum { |p| p.amount.to_d }
+      available = [eligible_online_net, 0.to_d].max.round(2) - other_requested
+    end
+
+    if amount > available + PAYOUT_AMOUNT_TOLERANCE
+      raise StandardError, "Dealer available payout amount is insufficient"
+    end
+
+    true
+  end
+
+  def selected_orders_net_amount(selected)
+    total = 0.to_d
+    selected.each do |item|
+      item = item.respond_to?(:with_indifferent_access) ? item.with_indifferent_access : {}
+      oid = item[:order_id] || item[:id]
+      otype = (item[:order_type] || item[:type] || "order").to_s.downcase
+      order = otype.in?(%w[b2b b2b_order wholesale]) ? B2bOrder.find_by(id: oid) : Order.find_by(id: oid)
+      raise StandardError, "Order ##{oid} for this payout was not found" if order.blank?
+      raise StandardError, "Order #{request_reference(order)} does not belong to this dealer" unless order.seller_dealer_id == @dealer.id
+      raise StandardError, "Order #{request_reference(order)} is no longer payable" unless order.status.to_s.in?(PAYOUT_READY_ORDER_STATUSES) && order.payment_status.to_s.in?(PAYOUT_READY_PAYMENT_STATUSES)
+
+      total += calculate_order_financials(order)[:net_payout_amount]
+    end
+    total.round(2)
+  end
+
   def cleanup_duplicate_cod_deductions!
     entries = DealerLedgerEntry
       .where(dealer_id: @dealer.id, entry_type: "cod_commission_deduction")
@@ -532,9 +672,14 @@ class DealerPayoutService
         amount_to_refund = dup.amount.to_d
         Dealer.transaction do
           locked_dealer = Dealer.lock.find(@dealer.id)
+          # Re-check under the dealer lock: a concurrent GET may already have removed (and refunded)
+          # this duplicate; without this the balance would be credited twice.
+          locked_dup = DealerLedgerEntry.lock.find_by(id: dup.id)
+          next if locked_dup.nil?
+
           new_balance = (locked_dealer.settlement_balance.to_d + amount_to_refund).round(2)
           locked_dealer.update!(settlement_balance: new_balance)
-          dup.destroy!
+          locked_dup.destroy!
         end
       end
     end
@@ -683,11 +828,32 @@ class DealerPayoutService
 
     return { eligible: false, reason: "Replacement request open" } if replacement_request_open?(requestable)
 
+    if enforce_payout_hold_window?
+      hold_until = payout_hold_until(requestable)
+      if hold_until.present? && hold_until > Time.current
+        return { eligible: false, reason: "Settlement hold period ends on #{hold_until.strftime('%d %b %Y')}" }
+      end
+    end
+
     order_key = "#{requestable.is_a?(Order) ? 'order' : 'b2b_order'}:#{requestable.id}"
     is_claimed = claimed_keys ? claimed_keys.include?(order_key) : active_payout_exists_for?(requestable)
     return { eligible: false, reason: "Payout request already exists or order already paid" } if is_claimed
 
     { eligible: true }
+  end
+
+  # Opt-in (ENFORCE_PAYOUT_HOLD_WINDOW=true): orders are payable only after the settlement hold /
+  # return window has elapsed. Default (unset/false) keeps today's behaviour.
+  def enforce_payout_hold_window?
+    ENV["ENFORCE_PAYOUT_HOLD_WINDOW"].to_s.downcase == "true"
+  end
+
+  def payout_hold_until(requestable)
+    candidates = [requestable.try(:settlement_due_at), requestable.try(:return_window_closes_at)].compact
+    return candidates.max if candidates.any?
+
+    delivered = requestable.try(:delivered_at)
+    delivered.present? ? delivered + MarketplaceOrderFinancials.settlement_hold_days.days : nil
   end
 
   def calculate_total_gross_cod_sales
@@ -848,6 +1014,33 @@ class DealerPayoutService
       "requestable_reference" => requestable ? request_reference(requestable) : nil,
       "request_flow" => requestable ? requestable_flow(requestable) : "general"
     }.compact
+  end
+
+  def credit_ledger_for_payout!(locked_payout, locked_dealer, debit_amount)
+    return unless self.class.ledger_credit_on_payout?
+    return if payout_is_cod?(locked_payout)
+    return if ledger_credit_exists_for_payout?(locked_payout)
+
+    credit_amount = payout_settlement_credit_amount(locked_payout, debit_amount)
+    return unless credit_amount.positive?
+
+    DealerLedgerService.credit!(
+      dealer: locked_dealer,
+      amount: credit_amount,
+      entry_type: "order_settlement",
+      description: "Settlement credit for payout request #{locked_payout.request_number}",
+      order: locked_payout.requestable.is_a?(Order) ? locked_payout.requestable : nil,
+      metadata: ledger_credit_metadata(locked_payout, "forward")
+    )
+  end
+
+  def ledger_credit_metadata(payout, source)
+    {
+      settlement_credit_key: self.class.ledger_credit_key_for(payout),
+      settlement_credit_source: source,
+      payout_id: payout.id,
+      request_number: payout.request_number
+    }
   end
 
   def payout_ledger_metadata(payout)

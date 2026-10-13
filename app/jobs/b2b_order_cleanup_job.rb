@@ -53,6 +53,9 @@ class B2bOrderCleanupJob < ApplicationJob
 
   def expire_pending_payment(order)
     ActiveRecord::Base.transaction do
+      order.lock!
+      next unless order.pending_payment? && order.payment_status != "paid"
+
       order.release_reserved_inventory!
       order.expire_pending_payment!
 

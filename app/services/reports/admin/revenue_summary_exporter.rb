@@ -8,12 +8,13 @@ module Reports
         b2b = B2bOrder.where(created_at: range).where.not(status: %w[cancelled rejected_request])
 
         daily_map = {}
+        fin = Reports::OrderFinancials.new
 
         b2c.find_each do |o|
           dt = o.created_at.to_date.to_s
           daily_map[dt] ||= { b2c: 0.0, b2b: 0.0, comm: 0.0 }
           daily_map[dt][:b2c] += o.total_amount.to_f
-          daily_map[dt][:comm] += o.commission_amount.to_f
+          daily_map[dt][:comm] += fin.resolve(o).first.to_f
         end
 
         b2b.find_each do |o|

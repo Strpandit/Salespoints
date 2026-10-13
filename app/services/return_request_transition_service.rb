@@ -38,6 +38,8 @@ class ReturnRequestTransitionService
         attrs[:rejected_at] = request.rejected_at || Time.current
       when "cancelled"
         attrs[:cancelled_at] = request.cancelled_at || Time.current
+        # Stock was reserved when the replacement shipped (in_transit); give it back if it never arrives.
+        release_replacement_inventory!(request) if request.status == "in_transit"
       end
 
       request.update!(attrs.compact)
@@ -91,6 +93,25 @@ class ReturnRequestTransitionService
       requestable.b2b_order_items
     else
       raise StandardError, "Unsupported requestable type"
+    end
+  end
+
+  def release_replacement_inventory!(request)
+    request_items(request.requestable).find_each do |item|
+      dealer_product_id = item.try(:dealer_product_id)
+      wholesaler_post_id = item.try(:wholesaler_post_id)
+      product_variant_id = item.try(:product_variant_id)
+
+      if dealer_product_id.present?
+        DealerProduct.lock.find_by(id: dealer_product_id)&.restore_stock!(nil, item.quantity)
+      elsif wholesaler_post_id.present?
+        post = WholesalerPost.lock.find_by(id: wholesaler_post_id)
+        post&.update!(stock_quantity: post.stock_quantity.to_i + item.quantity.to_i)
+      elsif product_variant_id.present?
+        seller = request.requestable.try(:seller_dealer)
+        dp = seller&.dealer_products&.lock&.find_by(product_variant_id: product_variant_id)
+        dp&.restore_stock!(nil, item.quantity)
+      end
     end
   end
 

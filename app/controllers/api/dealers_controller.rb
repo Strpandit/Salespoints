@@ -1,5 +1,7 @@
 module Api
   class DealersController < ApplicationController
+    include AttachmentKeepList
+
     skip_before_action :authenticate_request!, only: [:create, :verify_otp, :resend_signup_otp, :check_signup_token]
     rate_limit to: 10, within: 10.minutes, only: [:create, :resend_signup_otp], name: "dealer-signup", by: -> { client_ip },
                with: -> { render json: { error: "Too many requests. Please try again later." }, status: :too_many_requests }
@@ -31,6 +33,13 @@ module Api
     end
 
     def index
+      # require_admin guarantees an admin caller. Other admin screens (payouts, revenue, bulk deals, offers,
+      # orders, analytics...) use this list as a dealer picker, so any of those modules is enough.
+      dealer_list_modules = %i[dealers dealer_products dealer_profiles dealer_locations payouts payout_requests wholesaler_posts dealer_offers orders analytics]
+      unless dealer_list_modules.any? { |m| current_admin.can_access?(m, :read) }
+        return render json: { error: "You do not have permission to view dealers" }, status: :forbidden
+      end
+
       dealers = Dealer.includes(:dealer_profile, :dealer_location)
       dealers = if current_admin.super_admin?
         Dealer.all
@@ -208,7 +217,10 @@ module Api
         end
       end
 
-      dealer = Dealer.new(dealer_params.except(:status))
+      create_attrs = dealer_params.except(:status)
+      # Verification flag is an admin decision; public signup cannot self-verify.
+      create_attrs[:dealer_profile_attributes]&.delete(:is_verified) unless signup_caller_is_admin?
+      dealer = Dealer.new(create_attrs)
       dealer.status = "pending"
 
       unless dealer.email.present?
@@ -329,7 +341,10 @@ module Api
       location_before = @dealer.dealer_location&.attributes || {}
       previous_status = @dealer.status
 
-      if @dealer.update(permitted_dealer_update_params)
+      update_attrs = permitted_dealer_update_params.except(:password, :password_confirmation)
+      sync_profile_documents!(update_attrs)
+
+      if @dealer.update(update_attrs)
         is_dealer_user = current_user_type == "Dealer"
         @dealer.revoke_tokens! if previous_status != @dealer.status && blocked_actor?(@dealer)
 
@@ -527,13 +542,27 @@ module Api
     end
 
     def bank_change_requests
-      dealers = Dealer.joins(:dealer_profile)
+      dealers = Dealer.joins(:dealer_profile).includes(:dealer_profile, :dealer_location)
                       .where(dealer_profiles: { bank_change_status: "pending" })
                       .order("dealer_profiles.bank_change_requested_at DESC")
+      total = dealers.count
+
+      # Unpaginated by default (existing clients read the whole list); page / per_page opt in to paging.
+      if params[:page].present? || params[:per_page].present?
+        per_page = params[:per_page].to_i.clamp(1, 100) if params[:per_page].present?
+        dealers = dealers.page(params[:page]).per(per_page || 20)
+        meta = {
+          current_page: dealers.current_page, next_page: dealers.next_page, prev_page: dealers.prev_page,
+          total_pages: dealers.total_pages, total_count: dealers.total_count
+        }
+      else
+        meta = { current_page: 1, next_page: nil, prev_page: nil, total_pages: 1, total_count: total }
+      end
 
       render json: {
         data: dealers.map { |d| serialize_resource(d, DealerSerializer, base_url: request.base_url) },
-        count: dealers.count,
+        count: total,
+        meta: meta,
         message: "Bank change requests fetched successfully"
       }, status: :ok
     end
@@ -583,10 +612,12 @@ module Api
         return render json: { error: "Dealer profile not found." }, status: :not_found
       end
 
+      rejection_reason = params[:reason].to_s.strip.presence
       profile.update!(
         bank_change_status: "rejected",
         bank_change_reviewed_at: Time.current,
-        bank_change_reviewed_by_id: current_admin&.id
+        bank_change_reviewed_by_id: current_admin&.id,
+        bank_change_rejection_reason: rejection_reason
       )
 
       Notification.create(
@@ -595,14 +626,15 @@ module Api
         notifiable: @dealer,
         notification_type: "bank_change_rejected",
         title: "Bank Change Request Rejected",
-        body: "Your request to change bank details has been rejected by the administrator.",
-        payload: { status: "rejected", rejected_at: Time.current.iso8601 }
+        body: ["Your request to change bank details has been rejected by the administrator.", rejection_reason].compact.join(" Reason: "),
+        payload: { status: "rejected", rejected_at: Time.current.iso8601, reason: rejection_reason }
       )
 
       notify_admins_entity_updated(@dealer)
       render json: {
         message: "Bank change request rejected.",
         status: "rejected",
+        reason: rejection_reason,
         dealer: serialize_resource(@dealer, DealerSerializer, base_url: request.base_url)
       }, status: :ok
     rescue StandardError => e
@@ -611,6 +643,12 @@ module Api
 
     # update_columns: blocking must succeed even for legacy rows that fail newer validations.
     def block
+      # Blocking overwrites the status, and unblock restores "active"; a dealer still awaiting (or denied)
+      # approval must go through approve / reject instead or block -> unblock would skip approval.
+      if @dealer.pending? || @dealer.rejected?
+        return render json: { error: "A #{@dealer.status} dealer cannot be blocked. Approve or reject the application instead." }, status: :unprocessable_entity
+      end
+
       @dealer.update_columns(status: "banned", updated_at: Time.current)
       @dealer.revoke_tokens!
       notify_admins_entity_updated(@dealer)
@@ -618,6 +656,10 @@ module Api
     end
 
     def unblock
+      unless @dealer.banned? || @dealer.inactive?
+        return render json: { error: "Only a blocked or inactive dealer can be unblocked (current status: #{@dealer.status})" }, status: :unprocessable_entity
+      end
+
       @dealer.update_columns(status: "active", updated_at: Time.current)
       notify_admins_entity_updated(@dealer)
       render json: { message: "Dealer unblocked successfully" }, status: :ok
@@ -740,7 +782,22 @@ module Api
       limit = 20 if limit <= 0
       limit = [limit, 100].min
 
-      results = Dealer.nearby(lat, lng, radius_km: radius, limit: limit)
+      # The service returns raw Dealer records; never serialize those directly (password digest,
+      # OTP, signup token...). Expose only public storefront fields.
+      results = Dealer.nearby(lat, lng, radius_km: radius, limit: limit).map do |entry|
+        dealer = entry[:dealer]
+        entry.merge(dealer: {
+          id: dealer.id,
+          dealer_code: dealer.dealer_code,
+          full_name: dealer.full_name,
+          business_name: dealer.dealer_profile&.business_name,
+          city: dealer.try(:city),
+          state: dealer.try(:state),
+          pincode: dealer.pincode,
+          latitude: dealer.dealer_location&.latitude,
+          longitude: dealer.dealer_location&.longitude
+        })
+      end
 
       render json: {
         data: results,
@@ -768,6 +825,36 @@ module Api
         ],
         dealer_location_attributes: [:id, :latitude, :longitude, :service_radius_km, :is_active]
       )
+    end
+
+    # Multi-file profile documents append to what is already on file (Rails would otherwise replace the
+    # whole collection). Clients that send existing_*_ids (the "keep" lists) also remove whatever they
+    # no longer list; clients that send none never lose a file.
+    PROFILE_KEEP_PARAMS = {
+      store_image: %i[existing_store_image_ids],
+      aadhar_card: %i[existing_aadhar_card_ids],
+      brand_invoices: %i[existing_brand_invoice_ids existing_brand_invoices_ids]
+    }.freeze
+
+    def sync_profile_documents!(attrs)
+      profile_attrs = attrs[:dealer_profile_attributes]
+      profile = @dealer.dealer_profile
+      return if profile_attrs.blank? || profile.blank?
+
+      raw = params.dig(:dealer, :dealer_profile_attributes)
+      keep_aware = raw.respond_to?(:key?) && PROFILE_KEEP_PARAMS.values.flatten.any? { |key| raw.key?(key) }
+
+      PROFILE_KEEP_PARAMS.each do |name, keys|
+        keep_ids = keep_aware ? (keep_id_list(raw, *keys) || []) : nil
+        merged = merged_attachables(profile.public_send(name).attachments, profile_attrs[name], keep_ids)
+        if merged.nil?
+          profile_attrs.delete(name)
+        else
+          raise StandardError, "At least one store image is required" if name == :store_image && merged.empty?
+
+          profile_attrs[name] = merged
+        end
+      end
     end
 
     def normalize_verified_bank_payload!
@@ -808,6 +895,16 @@ module Api
         profile: target_profile,
         verification_payload: verification_payload
       )
+    end
+
+    # `create` is public (self signup) so the session is not resolved for it; peek at an optional
+    # bearer token only to know whether an admin is creating the dealer.
+    def signup_caller_is_admin?
+      token = bearer_token
+      return false if token.blank?
+
+      _user, user_type, failure = resolve_session(token)
+      failure.nil? && user_type == "AdminUser"
     end
 
     def find_signup_dealer
@@ -857,6 +954,11 @@ module Api
     # verified bank flow (normalize_verified_bank_payload!), never as loose profile fields.
     def permitted_dealer_update_params
       attrs = dealer_params
+      # Moving a dealer in/out of "active" is an approval decision (approve/reject/block endpoints are
+      # approver-only); a plain dealers:write admin may edit details but not flip the status here.
+      if current_user_type == "AdminUser" && !current_admin.approver_admin? && attrs.key?(:status) && attrs[:status].to_s != @dealer.status.to_s
+        attrs = attrs.except(:status)
+      end
       return attrs unless current_dealer
 
       attrs = attrs.except(:status)

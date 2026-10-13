@@ -1,4 +1,6 @@
 class ReturnRequest < ApplicationRecord
+  include AttachableMediaValidations
+
   REQUEST_TYPES = %w[return replacement].freeze
   REPLACEMENT_MODES = %w[full partial].freeze
   STATUSES = %w[requested partially_replacement_requested approved rejected in_transit received completed cancelled].freeze
@@ -13,6 +15,8 @@ class ReturnRequest < ApplicationRecord
   validates :replacement_mode, inclusion: { in: REPLACEMENT_MODES }, allow_blank: true
   validates :status, inclusion: { in: STATUSES }
   validates :refund_amount, :seller_adjustment_amount, numericality: { greater_than_or_equal_to: 0 }
+  # Only when new files are being attached, so legacy rows with older uploads can still change status.
+  validate(if: -> { attachment_changes["media"].present? }) { validate_attachment_set(:media) }
 
   scope :recent, -> { order(created_at: :desc) }
 

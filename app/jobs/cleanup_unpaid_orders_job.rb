@@ -26,7 +26,7 @@ class CleanupUnpaidOrdersJob < ApplicationJob
 
   def cleanup_order(order, reason: "Order auto-cancelled — payment/expiry timeout")
     ActiveRecord::Base.transaction do
-      order.reload
+      order.lock!
 
       return if order.payment_status == "paid" || order.status != "pending"
 

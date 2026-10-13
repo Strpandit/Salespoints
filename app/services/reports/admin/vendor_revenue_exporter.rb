@@ -6,6 +6,7 @@ module Reports
 
         headers = ["Dealer Code", "Dealer Business Name", "Dealer Phone", "Total Orders", "Gross GMV Sales (₹)", "Marketplace Commission (₹)", "Net Settlement Amount (₹)"]
         v_map = {}
+        fin = Reports::OrderFinancials.new
 
         Order.where(created_at: range).where.not(status: "cancelled").includes(:seller_dealer).find_each do |o|
           next unless o.seller_dealer
@@ -16,8 +17,9 @@ module Reports
           v_map[d_code] ||= { code: d_code, name: b_name, phone: d.phone || "N/A", orders: 0, gmv: 0.0, comm: 0.0, net: 0.0 }
           v_map[d_code][:orders] += 1
           v_map[d_code][:gmv] += o.total_amount.to_f
-          v_map[d_code][:comm] += o.commission_amount.to_f
-          v_map[d_code][:net] += o.seller_settlement_amount.to_f
+          comm, net = fin.resolve(o)
+          v_map[d_code][:comm] += comm.to_f
+          v_map[d_code][:net] += net.to_f
         end
 
         rows = v_map.values.map do |v|

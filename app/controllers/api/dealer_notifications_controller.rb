@@ -1,8 +1,11 @@
 module Api
   class DealerNotificationsController < ApplicationController
+    before_action :require_dealer!
+
     def index
-      scope = current_dealer.notifications.recent.select(&:visible_in_app?)
-      items = Kaminari.paginate_array(scope).page(params[:page]).per(params[:per_page] || 20)
+      scope = current_dealer.notifications.recent
+                            .where("COALESCE(notifications.payload -> 'visible_in_app', 'true'::jsonb) <> 'false'::jsonb")
+      items = scope.page(params[:page]).per(params[:per_page] || 20)
 
       render json: {
         data: items.map { |n| serialize_notification(n) },
@@ -12,7 +15,7 @@ module Api
           prev_page: items.prev_page,
           total_pages: items.total_pages,
           total_count: items.total_count,
-          unread_count: scope.count { |n| n.read_at.nil? }
+          unread_count: scope.where(read_at: nil).count
         },
         message: "Notifications fetched successfully"
       }, status: :ok
@@ -27,11 +30,16 @@ module Api
     end
 
     def mark_all_read
-      current_dealer.notifications.where(read_at: nil).find_each(&:mark_read!)
+      now = Time.current
+      current_dealer.notifications.where(read_at: nil).update_all(read_at: now, updated_at: now)
       render json: { message: "All notifications marked as read" }, status: :ok
     end
 
     private
+
+    def require_dealer!
+      render json: { error: "Dealer only" }, status: :unauthorized unless current_dealer
+    end
 
     def serialize_notification(item)
       unread = item.read_at.blank?

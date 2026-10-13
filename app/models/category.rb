@@ -1,6 +1,6 @@
 class Category < ApplicationRecord
   has_many :products, dependent: :nullify
-  has_many :cat_filters
+  has_many :cat_filters, dependent: :restrict_with_error
   has_many :brand_categories, dependent: :destroy
   has_many :brands, through: :brand_categories
   
@@ -9,8 +9,8 @@ class Category < ApplicationRecord
   validates :name, :slug, presence: true, uniqueness: true
 
   before_validation :set_slug, on: [:create, :update]
-
-  before_destroy :check_for_products
+  after_validation { errors.delete(:slug) if errors[:name].any? }
+  before_destroy :check_for_products, prepend: true
 
   validate :acceptable_image
 

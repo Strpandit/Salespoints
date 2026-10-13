@@ -82,6 +82,11 @@ module Api
       request = nil
 
       ActiveRecord::Base.transaction do
+        # Serialise on the order so a double submit cannot create two replacement requests.
+        requestable.lock!
+        raise StandardError, "Replacement request already exists for this order" if requestable.replacement_requested?
+        raise StandardError, "Order cannot be moved to replacement requested" unless requestable.can_transition_to?("replacement_requested")
+
         request = requestable.return_requests.create!(
           requester: current_user,
           request_type: "replacement",

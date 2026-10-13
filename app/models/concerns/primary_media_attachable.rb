@@ -5,7 +5,9 @@ module PrimaryMediaAttachable
     attr_accessor :primary_new_media_index
 
     before_save :remember_media_attachment_count
-    after_save :resolve_primary_new_media_index
+    # after_commit: ActiveStorage persists the new attachments in its own after_save callback, which is
+    # registered after this concern's callbacks - at after_save time the new files do not exist yet.
+    after_commit :resolve_primary_new_media_index, on: [:create, :update]
   end
 
   def ordered_media_attachments
@@ -28,7 +30,7 @@ module PrimaryMediaAttachable
     return if index.blank?
 
     idx = index.to_i
-    attachments = media_attachments.order(:created_at).to_a
+    attachments = media_attachments.reorder(:created_at, :id).to_a
     target = attachments[@media_attachment_count_before_save.to_i + idx]
     return unless target
 

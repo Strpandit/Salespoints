@@ -6,8 +6,16 @@ module Reports
 
         b2c_orders = Order.where(created_at: range).where.not(status: "cancelled")
         total_gmv   = b2c_orders.sum(:total_amount).to_f
-        total_comm  = b2c_orders.sum(:commission_amount).to_f
-        total_settle = b2c_orders.sum(:seller_settlement_amount).to_f
+        fin = Reports::OrderFinancials.new
+        comm_sum = BigDecimal("0")
+        settle_sum = BigDecimal("0")
+        b2c_orders.select(:id, :status, :payment_status, :refund_status, :total_amount, :commission_amount, :seller_settlement_amount).find_each do |o|
+          c, s = fin.resolve(o)
+          comm_sum += c
+          settle_sum += s
+        end
+        total_comm  = comm_sum.to_f
+        total_settle = settle_sum.to_f
         gross_margin_pct = total_gmv.positive? ? ((total_comm / total_gmv) * 100).round(2) : 0.0
 
         headers = ["Financial Metric", "Value"]

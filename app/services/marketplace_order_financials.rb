@@ -27,6 +27,15 @@ class MarketplaceOrderFinancials
       env_integer("ORDER_SETTLEMENT_HOLD_DAYS", default: return_window_days)
     end
 
+    # Minimum settlement_balance a dealer must exceed before an automatic payout is raised.
+    # Env MIN_PAYOUT_THRESHOLD (default 0 = any positive balance).
+    def minimum_payout_threshold
+      value = BigDecimal(ENV["MIN_PAYOUT_THRESHOLD"].presence || "0")
+      value.negative? ? 0.to_d : value
+    rescue ArgumentError, TypeError
+      0.to_d
+    end
+
     private
 
     def commission_rate_percent

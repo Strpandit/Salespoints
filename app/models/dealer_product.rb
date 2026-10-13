@@ -56,7 +56,26 @@ class DealerProduct < ApplicationRecord
     end
   end
 
-  scope :with_active_dealer, -> { 
+  def restore_stock!(color_id, quantity)
+    qty = quantity.to_i
+    return if qty <= 0
+
+    key = color_id.to_s
+    if color_id.present? && color_stocks.is_a?(Hash) && color_stocks.key?(key)
+      val = color_stocks[key]
+      if val.is_a?(Hash)
+        color_stocks[key]["stock"] = val["stock"].to_i + qty
+      else
+        color_stocks[key] = val.to_i + qty
+      end
+      sync_total_stock_from_colors
+      save!
+    else
+      update!(stock_quantity: stock_quantity.to_i + qty)
+    end
+  end
+
+  scope :with_active_dealer, -> {
     joins(:dealer).where(dealers: { deleted_at: nil, status: 'active' })
   }
   scope :live, -> { with_active_dealer.where(is_active: true, approve_status: 1).where("dealer_products.stock_quantity > 0 OR dealer_products.stock_quantity IS NULL") }

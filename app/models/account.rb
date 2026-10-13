@@ -6,10 +6,9 @@ class Account < ApplicationRecord
 
   has_many :addresses, dependent: :destroy
   has_many :reviews, dependent: :destroy
-  has_many :orders, as: :buyer, dependent: :destroy
-  has_many :payment_attempts, as: :buyer, dependent: :destroy
+  has_many :orders, as: :buyer
+  has_many :payment_attempts, as: :buyer
   has_many :notifications, as: :receiver, dependent: :destroy
-  # Kept after the account is (soft) deleted so admins keep the approval history.
   has_many :deletion_requests, as: :requestable
   has_many :push_subscriptions, as: :subscriber, dependent: :destroy
   has_many :support_tickets, foreign_key: "account_id", dependent: :destroy

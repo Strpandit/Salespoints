@@ -1,5 +1,7 @@
 module Api
   class AccountsController < ApplicationController
+    include PasswordPolicy
+
     before_action :authenticate_request!
     before_action :require_admin, only: [:index, :block, :unblock]
     before_action :check_permission, only: [:index, :block, :unblock]
@@ -76,7 +78,13 @@ module Api
     end
 
     def update
-      if @account.update(account_params)
+      attrs = account_params
+      password_error = guard_password_change(attrs)
+      return render json: { errors: [password_error], error: password_error }, status: :unprocessable_entity if password_error
+
+      password_changed = attrs[:password].present?
+      if @account.update(attrs)
+        @account.revoke_tokens! if password_changed && @password_was_set
         render json: { account: serialize_data(@account, AccountSerializer), message: "Account updated successfully" }, status: :ok
       else
         render json: { errors: @account.errors.full_messages }, status: :unprocessable_entity
@@ -84,9 +92,27 @@ module Api
     end
 
     def destroy
-      render json: {
-        message: "Account deletion requires admin approval. Submit a request from Security settings in your profile."
-      }, status: :forbidden
+      unless current_user_type == "AdminUser"
+        return render json: {
+          message: "Account deletion requires admin approval. Submit a request from Security settings in your profile.",
+          error: "Account deletion requires admin approval. Submit a request from Security settings in your profile."
+        }, status: :forbidden
+      end
+
+      unless current_admin.super_admin?
+        return render json: { error: "Only super admin can delete customer accounts" }, status: :forbidden
+      end
+
+      account_name = @account.try(:full_name).presence || @account.email.presence || "Account ##{@account.id}"
+
+      @account.revoke_tokens!
+      if @account.destroy
+        ActivityLogger.log(actor: current_admin, action: "customer_deleted", category: "admin_action",
+                           description: "Deleted customer account #{account_name}", request: request)
+        render json: { message: "Customer account deleted successfully" }, status: :ok
+      else
+        render json: { error: @account.errors.full_messages.presence || ["Customer account could not be deleted"] }, status: :unprocessable_entity
+      end
     end
 
     def block
@@ -100,6 +126,10 @@ module Api
     end
 
     def unblock
+      unless %w[banned inactive].include?(@account.status)
+        return render json: { error: "Only a blocked or inactive account can be unblocked (current status: #{@account.status})" }, status: :unprocessable_entity
+      end
+
       @account.update!(status: 'active')
       
       # Send account unblocked email
@@ -109,13 +139,18 @@ module Api
     end
 
     def change_password
+      return unauthorized("Customer account required") unless current_account
+
       unless current_account.authenticate(params[:current_password])
         return unauthorized("Incorrect current password")
       end
 
+      policy_error = password_policy_error(params[:new_password], params[:confirm_password])
+      return render_password_policy_error(policy_error) if policy_error
+
       if current_account.update(
         password: params[:new_password],
-        password_confirmation: params[:confirm_password]
+        password_confirmation: params[:new_password].to_s
       )
         current_account.revoke_tokens!
         render json: { status: 200, message: "Password changed successfully", token: JsonWebToken.issue_for(current_account) }, status: :ok
@@ -126,8 +161,26 @@ module Api
 
     private
 
+    def guard_password_change(attrs)
+      @password_was_set = false
+      return nil unless attrs[:password].present?
+
+      if @account.password_digest.present?
+        @password_was_set = true
+        if ENV.fetch("ACCOUNT_UPDATE_REQUIRE_CURRENT_PASSWORD", "true") != "false"
+          current = params[:current_password].presence || params[:old_password].presence ||
+                    params.dig(:account, :current_password).presence || params.dig(:account, :old_password).presence
+          return "Current password is required to change your password" if current.blank?
+          return "Incorrect current password" unless @account.authenticate(current.to_s)
+        end
+      end
+
+      password_policy_error(attrs[:password], attrs[:password_confirmation])
+    end
+
     def set_account
-      @account = Account.find(params[:id])
+      @account = Account.find_by(id: params[:id])
+      render json: { error: "Account not found" }, status: :not_found unless @account
     end
 
     def authorize_account!
@@ -136,9 +189,6 @@ module Api
       end
     end
 
-    # Customers edit their own profile here. `status` (active/banned…) and `google_signup` are
-    # server-controlled — status only changes via OTP activation or admin block/unblock —
-    # so they are never accepted from this endpoint.
     def account_params
       params.require(:account).permit(:first_name, :last_name, :email, :phone, :country_code, :gender, :password, :password_confirmation)
     end

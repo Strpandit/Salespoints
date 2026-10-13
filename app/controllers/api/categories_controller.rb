@@ -14,7 +14,7 @@ module Api
           render json: { error: "Category not found" }, status: :not_found
         end
       else
-        categories = Category.includes(:brands).where(is_active: true).order(created_at: :desc).page(params[:page]).per(params[:per_page] || 20)
+        categories = Category.includes(:brands, :cat_filters, cat_icon_attachment: :blob).where(is_active: true).order(created_at: :desc).page(params[:page]).per(params[:per_page] || 20)
         if categories.exists?
           render json: serialize_resource(categories, CategorySerializer, base_url: request.base_url).merge(
             meta: {
@@ -32,7 +32,7 @@ module Api
     end
 
     def all_categories
-      categories = Category.includes(:brands)
+      categories = Category.includes(:brands, :cat_filters, cat_icon_attachment: :blob)
 
       if params[:is_active].present? && params[:is_active] != "all"
         is_act = ActiveModel::Type::Boolean.new.cast(params[:is_active])
@@ -90,6 +90,7 @@ module Api
     def update
       old_brands = @category.brands.pluck(:name).sort.join(", ").presence || "None"
       old_icon_attached = @category.cat_icon.attached?
+      @category.cat_icon.purge if ActiveModel::Type::Boolean.new.cast(params.dig(:category, :remove_cat_icon)) && !params.dig(:category, :cat_icon).present?
       if @category.update(category_params)
         changes = @category.saved_changes.except("updated_at", "created_at").transform_values { |v| { from: v[0], to: v[1] } }
         new_brands = @category.brands.reload.pluck(:name).sort.join(", ").presence || "None"
@@ -124,8 +125,8 @@ module Api
         return
       end
 
-      notify_admins_entity_deleted(@category)
       if @category.destroy
+        notify_admins_entity_deleted(@category)
         render json: { message: "Category deleted successfully" }, status: :ok
       else
         render json: {
@@ -146,7 +147,8 @@ module Api
     end
 
     def check_permission
-      unless current_admin.can_access?(:categories)
+      permission = action_name == "all_categories" ? :read : :write
+      unless current_admin.can_access?(:categories, permission)
         render json: { error: "You do not have permission to manage categories"}, status: :forbidden
       end
     end

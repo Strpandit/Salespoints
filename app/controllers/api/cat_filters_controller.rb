@@ -8,6 +8,9 @@ module Api
     def index
       filters = CatFilter.includes(:category)
       filters = filters.where(category_id: params[:category_id]) if params[:category_id].present?
+      if params[:is_filterable].present? && params[:is_filterable] != "all"
+        filters = filters.where(is_filterable: ActiveModel::Type::Boolean.new.cast(params[:is_filterable]))
+      end
       filters = filters.order(display_order: :asc, created_at: :desc).page(params[:page]).per(params[:per_page] || 20)
       render json: serialize_resource(filters, CatFilterSerializer).merge(
         meta: {
@@ -86,7 +89,7 @@ module Api
     end
 
     def check_permission
-      unless current_admin.can_access?(:cat_filters) && current_admin.can_access?(:categories)
+      unless current_admin.can_access?(:cat_filters, :write) && current_admin.can_access?(:categories)
         render json: { error: "You do not have permission to manage filters. Both 'filters' and 'categories' permissions are required." }, status: :forbidden
       end
     end

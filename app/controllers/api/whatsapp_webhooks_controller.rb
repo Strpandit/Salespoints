@@ -5,7 +5,9 @@ module Api
     def verify
       verify_token = ENV["META_WHATSAPP_VERIFY_TOKEN"].to_s
 
-      if params["hub.mode"] == "subscribe" && params["hub.verify_token"].to_s == verify_token
+      # Fail closed when the verify token is not configured (blank == blank must not pass).
+      if verify_token.present? && params["hub.mode"] == "subscribe" &&
+         ActiveSupport::SecurityUtils.secure_compare(params["hub.verify_token"].to_s, verify_token)
         render plain: params["hub.challenge"].to_s, status: :ok
       else
         render plain: "Verification failed", status: :forbidden

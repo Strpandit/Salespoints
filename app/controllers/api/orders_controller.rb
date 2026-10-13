@@ -3,6 +3,15 @@ module Api
     before_action :require_buyer!, only: [:buy_now, :download_invoice]
     before_action :authorize_admin_orders_access!, only: [:index, :show, :update, :refund, :release_settlement]
 
+    SERIALIZER_PRELOADS = [
+      :buyer, :seller_dealer,
+      { return_requests: [:requester, { media_attachments: :blob }] },
+      { delivery_confirmation: [:seller_dealer, :buyer, { product_with_customer_image_attachment: :blob },
+                                { product_packaging_image_attachment: :blob }, { product_open_box_images_attachments: :blob }] },
+      { order_items: [:order, :product_variant_color, { dealer_product: { product: { media_attachments: :blob } } },
+                      { product_variant: [{ product: { media_attachments: :blob } }] }] }
+    ].freeze
+
     def buy_now
       shipping_address = params[:shipping_address].presence || checkout_address_payload
       billing_address = params[:billing_address].presence || shipping_address
@@ -40,7 +49,15 @@ module Api
       status_counts = apply_filters(orders, skip_status: true).unscope(:order).group(:status).count
       orders = apply_filters(orders)
       paginated = orders.recent.page(params[:page]).per(params[:per_page] || 20)
-      paginated.each { |order| OrderSettlementService.process_if_due!(order) }
+      # Only delivered orders still waiting on settlement can be released; skipping the rest avoids a
+      # reload (and the lost association cache) per row.
+      paginated.each do |order|
+        next unless order.delivered? && order.settlement_status.in?(%w[pending on_hold partially_refunded])
+
+        OrderSettlementService.process_if_due!(order)
+      end
+      # process_if_due! reloads records it touches, so (re)load what the serializer reads in bulk.
+      ActiveRecord::Associations::Preloader.new(records: paginated.to_a, associations: SERIALIZER_PRELOADS).call
 
       render json: serialize_resource(paginated, OrderSerializer, base_url: request.base_url).merge(
         meta: pagination_meta(paginated).merge(status_counts: status_counts),

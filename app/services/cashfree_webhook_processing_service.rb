@@ -111,6 +111,8 @@ class CashfreeWebhookProcessingService
       return if attempt.processed?
 
       received_amount = payload.dig("data", "order", "order_amount") || payload.dig("data", "payment", "payment_amount")
+      return if PaymentAmountGuard.hold_attempt?(attempt, attempt.amount, received_amount)
+
       notify_admins_of_amount_mismatch(attempt, attempt.amount, received_amount) if amount_mismatch?(attempt.amount, received_amount)
 
       attempt.update!(
@@ -138,6 +140,8 @@ class CashfreeWebhookProcessingService
         next if order.payment_status == "paid"
 
         received_amount = payload.dig("data", "order", "order_amount") || payload.dig("data", "payment", "payment_amount")
+        next if PaymentAmountGuard.hold_order?(order, order.total_amount, received_amount)
+
         notify_admins_of_amount_mismatch(order, order.total_amount, received_amount) if amount_mismatch?(order.total_amount, received_amount)
 
         order.mark_payment_paid!(
@@ -269,6 +273,13 @@ class CashfreeWebhookProcessingService
         )
       )
     when "FAILED", "REVERSED", "REJECTED"
+      unless payout.status.in?(%w[pending approved processing])
+        # e.g. REVERSED after the payout was already paid/ledgered: do not rewrite a settled payout; flag it.
+        Rails.logger.warn("[CashfreeWebhook] #{transfer_status} for payout #{payout.id} in status #{payout.status}; needs manual reconciliation")
+        payout.update!(metadata: payout.metadata.merge("webhook_unapplied_#{transfer_status.downcase}" => payload))
+        return
+      end
+
       DealerPayoutService.new(dealer: payout.dealer).mark_failed!(
         payout: payout,
         admin: payout.processed_by_admin || payout.approved_by_admin || AdminUser.active.first,

@@ -212,13 +212,14 @@ class B2bOrder < ApplicationRecord
   end
 
   def release_reserved_inventory!
+    return unless is_direct_buy?
+
     b2b_order_items.accepted_items.find_each do |item|
       if item.wholesaler_post_id.present?
         wholesaler_post = WholesalerPost.lock.find_by(id: item.wholesaler_post_id)
         wholesaler_post&.update!(stock_quantity: wholesaler_post.stock_quantity.to_i + item.quantity.to_i)
       elsif item.dealer_product_id.present?
-        dealer_product = DealerProduct.lock.find_by(id: item.dealer_product_id)
-        dealer_product&.update!(stock_quantity: dealer_product.stock_quantity.to_i + item.quantity.to_i)
+        DealerProduct.lock.find_by(id: item.dealer_product_id)&.restore_stock!(item.product_variant_color_id, item.quantity)
       end
     end
   end

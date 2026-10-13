@@ -1,5 +1,9 @@
 module Api
   class WholesalerPostsController < ApplicationController
+    rescue_from ActionController::ParameterMissing do |e|
+      render json: { error: "Missing required parameter: #{e.param}" }, status: :unprocessable_entity
+    end
+
     before_action :require_admin!, only: [:pending, :approve, :reject]
 
     def index
@@ -263,6 +267,10 @@ module Api
     end
 
     def update
+      unless params[:wholesaler_post].is_a?(ActionController::Parameters)
+        return render json: { error: "Missing required parameter: wholesaler_post" }, status: :unprocessable_entity
+      end
+
       if current_admin.present?
         return admin_update_post
       end
@@ -559,7 +567,8 @@ module Api
           id: dealer.id,
           dealer_code: dealer.dealer_code,
           full_name: dealer.full_name,
-          email: dealer.email,
+          # Seller contact e-mail is only for the seller and staff, not for the rest of the marketplace.
+          email: (current_admin.present? || current_dealer&.id == dealer.id) ? dealer.email : nil,
           business_name: dealer.dealer_profile&.business_name,
           store_image: dealer.dealer_profile&.store_image&.attached? ? 
             dealer.dealer_profile.store_image.map { |file| attachment_payload(file) } :

@@ -10,7 +10,7 @@ class Role < ApplicationRecord
 
   before_validation :normalize_serialized_permissions
 
-  validates :name, presence: true, uniqueness: true
+  validates :name, presence: true, uniqueness: { case_sensitive: false }
 
   validate :validate_module_access
   validate :validate_module_permissions

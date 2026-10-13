@@ -52,7 +52,7 @@ class GoogleMapsService
 
     url = "https://maps.googleapis.com/maps/api/distancematrix/json?origins=#{origins_str}&destinations=#{destinations_str}&key=#{@api_key}"
 
-    response = HTTParty.get(url)
+    response = HTTParty.get(url, timeout: 8)
     return nil unless response.success?
 
     JSON.parse(response.body)
@@ -122,7 +122,7 @@ class GoogleMapsService
 
     url = "https://maps.googleapis.com/maps/api/place/autocomplete/json?input=#{CGI.escape(query)}&key=#{@api_key}&components=country:IN"
 
-    response = HTTParty.get(url)
+    response = HTTParty.get(url, timeout: 8)
     return [] unless response.success?
 
     data = JSON.parse(response.body)
@@ -143,7 +143,7 @@ class GoogleMapsService
 
     url = "https://maps.googleapis.com/maps/api/place/details/json?place_id=#{place_id}&key=#{@api_key}"
 
-    response = HTTParty.get(url)
+    response = HTTParty.get(url, timeout: 8)
     return nil unless response.success?
 
     data = JSON.parse(response.body)

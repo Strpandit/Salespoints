@@ -1,4 +1,7 @@
 super_admin_email    = ENV.fetch('SUPER_ADMIN_EMAIL', 'salespointecom@gmail.com')
+if Rails.env.production? && ENV['SUPER_ADMIN_PASSWORD'].to_s.strip.empty?
+  raise 'SUPER_ADMIN_PASSWORD must be set when seeding in production (no default password is used).'
+end
 super_admin_password = ENV.fetch('SUPER_ADMIN_PASSWORD', 'Salespoints@2026')
 
 super_admin = AdminUser.find_or_initialize_by(email: super_admin_email) do |user|

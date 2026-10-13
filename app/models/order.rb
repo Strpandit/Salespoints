@@ -183,6 +183,10 @@ class Order < ApplicationRecord
     date_prefix = Time.current.strftime("%m%y")
     
     self.class.transaction do
+      # Row-locking the latest order does not stop two concurrent creates from reading the same "last" row
+      # and colliding on the unique index. A transaction-scoped advisory lock serialises number assignment
+      # until the surrounding save commits.
+      self.class.connection.execute("SELECT pg_advisory_xact_lock(7305101)")
       last_order = self.class.where("order_number LIKE ?", "SPIN#{date_prefix}%")
                              .or(self.class.where("order_number LIKE ?", "SPIN#{date_prefix}%"))
                              .order(order_number: :desc)

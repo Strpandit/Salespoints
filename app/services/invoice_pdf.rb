@@ -71,11 +71,20 @@ class InvoicePdf
         generated_number = nil
 
         5.times do
-          number = generate_invoice_number
-
           begin
-            @order.update!(invoice_number: number)
-            generated_number = number
+            ActiveRecord::Base.transaction do
+              # One invoice series: serialise number allocation and re-check the order under its lock, so two
+              # simultaneous downloads cannot issue (or overwrite) different numbers for the same order.
+              ActiveRecord::Base.connection.execute("SELECT pg_advisory_xact_lock(7305102)")
+              @order.lock!
+              if @order.invoice_number.present?
+                generated_number = @order.invoice_number
+              else
+                number = generate_invoice_number
+                @order.update!(invoice_number: number)
+                generated_number = number
+              end
+            end
             break
           rescue ActiveRecord::RecordNotUnique
             next
@@ -93,17 +102,17 @@ class InvoicePdf
     financial_year = current_financial_year
     klass = @order.is_a?(B2bOrder) ? B2bOrder : Order
 
-    last_invoice = klass
-                    .where("invoice_number LIKE ?", "SPIN/#{financial_year}/%")
-                    .order(invoice_number: :desc)
-                    .first
+    # Orders and B2B orders share the same "SPIN/<FY>/<n>" format, so number from the highest used in either table
+    # (per-table numbering issued the same invoice number to a retail and a B2B order).
+    last_serial = [Order, B2bOrder].map do |model|
+      model.where("invoice_number LIKE ?", "SPIN/#{financial_year}/%")
+           .order(invoice_number: :desc)
+           .limit(1)
+           .pick(:invoice_number)
+           .to_s.split("/").last.to_i
+    end.max
 
-    serial =
-      if last_invoice&.invoice_number.present?
-        last_invoice.invoice_number.split("/").last.to_i + 1
-      else
-        1
-      end
+    serial = last_serial + 1
 
     "SPIN/#{financial_year}/#{serial.to_s.rjust(5, '0')}"
   end

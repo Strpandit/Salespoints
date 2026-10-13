@@ -1,5 +1,7 @@
 module Api
   class DealerSessionsController < ApplicationController
+    include PasswordPolicy
+
     skip_before_action :authenticate_request!, only: [:login, :forgot_password, :otp_confirmation, :reset_password]
     RESET_FLOW_TTL = 10.minutes
     FORGOT_COOLDOWN = 60.seconds
@@ -13,7 +15,9 @@ module Api
                with: -> { render json: { error: "Too many attempts. Please try again later." }, status: :too_many_requests }
 
     def login
-      dealer = Dealer.active.find_by(email: params[:email]&.downcase) || Dealer.find_by(phone: params[:phone]&.gsub(/\D/, ''))
+      dealer = Dealer.active.find_by(email: params[:email]&.downcase) if params[:email].present?
+      # A blank phone must never match: find_by(phone: nil) would pick a dealer with no phone on file.
+      dealer ||= Dealer.find_by(phone: params[:phone].to_s.gsub(/\D/, '')) if params[:phone].to_s.gsub(/\D/, '').present?
 
       return unauthorized("Invalid credentials") unless dealer&.authenticate(params[:password]) && dealer.active?
 
@@ -29,14 +33,18 @@ module Api
 
     def change_password
       dealer = current_dealer
+      return render json: { error: "Dealer account required" }, status: :forbidden unless dealer
 
       unless dealer.authenticate(params[:current_password])
         return render json:{error:"Incorrect password"}, status: :unauthorized
       end
 
+      policy_error = password_policy_error(params[:new_password], params[:confirm_password])
+      return render_password_policy_error(policy_error) if policy_error
+
       if dealer.update(
         password: params[:new_password],
-        password_confirmation: params[:confirm_password]
+        password_confirmation: params[:new_password].to_s
       )
         ActivityLogger.log_auth(actor: dealer, action: "change_password", request: request)
         # Sign out every other session; hand back a fresh token so this device stays signed in.
@@ -63,6 +71,7 @@ module Api
 
       dealer.update!(otp_pin: SecureRandom.random_number(1000..9999).to_s, otp_sent_at: Time.current)
       Rails.cache.delete(reset_flow_cache_key(dealer.id))
+      clear_otp_verify_attempts!("dealer_reset", dealer.id)
       DealerAuthMailer.forgot_password_otp(dealer).deliver_later if dealer.email.present?
       ActivityLogger.log_auth(actor: dealer, action: "forgot_password_otp_sent", request: request)
       render json: { message: "OTP sent successfully", id: dealer.id }, status: :ok
@@ -95,7 +104,10 @@ module Api
         return unauthorized("Reset session expired. Verify OTP again.")
       end
 
-      if dealer.update(password: params[:password], password_confirmation: params[:password_confirmation])
+      policy_error = password_policy_error(params[:password], params[:password_confirmation])
+      return render_password_policy_error(policy_error) if policy_error
+
+      if dealer.update(password: params[:password], password_confirmation: params[:password].to_s)
         dealer.update(otp_pin: nil, otp_sent_at: nil)
         dealer.revoke_tokens!
         Rails.cache.delete(reset_flow_cache_key(dealer.id))

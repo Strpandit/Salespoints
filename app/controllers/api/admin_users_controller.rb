@@ -1,5 +1,8 @@
 module Api
   class AdminUsersController < ApplicationController
+    include PasswordPolicy
+    include AttachmentKeepList
+
     RESET_FLOW_TTL = 10.minutes
     FORGOT_COOLDOWN = 60.seconds
 
@@ -217,15 +220,15 @@ module Api
       role_ids = normalized_role_ids
       manager = current_admin.super_admin?
       attrs = manager ? admin_user_params : admin_user_params.except(*SUPER_ADMIN_ONLY_FIELDS)
+      attrs = attrs.except(:pincodes)
+      attrs = attrs.except(:password, :password_confirmation)
       status_changed = manager && attrs.key?(:status) && attrs[:status].to_s != @admin_user.status.to_s
+      apply_document_sync!(attrs)
 
       ActiveRecord::Base.transaction do
         @admin_user.update!(attrs)
-        assign_roles!(@admin_user, role_ids) if manager && params.key?(:role_ids)
-
-        if manager && params.dig(:admin_user, :pincodes).present?
-          assign_pincodes!(@admin_user, params[:admin_user][:pincodes])
-        end
+        assign_roles!(@admin_user, role_ids, allow_clear: true) if manager && roles_param_present?
+        assign_pincodes!(@admin_user, submitted_pincodes) if manager && pincodes_param_present?
       end
       @admin_user.revoke_tokens! if status_changed && @admin_user.inactive?
 
@@ -237,7 +240,8 @@ module Api
     end
 
     def assign_pincodes
-      admin = AdminUser.find(params[:id])
+      admin = AdminUser.find_by(id: params[:id])
+      return render json: { error: "Admin user not found" }, status: :not_found unless admin
 
       unless current_admin.super_admin?
         return forbidden("Only super admin can assign pincodes")
@@ -263,7 +267,8 @@ module Api
     end
 
     def admin_pincodes
-      admin = AdminUser.find(params[:id])
+      admin = AdminUser.find_by(id: params[:id])
+      return render json: { error: "Admin user not found" }, status: :not_found unless admin
       return forbidden("You can view only your own pincodes") unless current_admin.super_admin? || current_admin.id == admin.id
 
       render json: {
@@ -274,7 +279,8 @@ module Api
     end
 
     def remove_pincode
-      admin = AdminUser.find(params[:id])
+      admin = AdminUser.find_by(id: params[:id])
+      return render json: { error: "Admin user not found" }, status: :not_found unless admin
       
       unless current_admin.super_admin?
         return forbidden("Only super admin can remove pincodes")
@@ -363,6 +369,8 @@ module Api
         otp_sent_at: Time.current
       )
       Rails.cache.delete(reset_flow_cache_key(admin.id))
+      clear_otp_verify_attempts!("admin_reset", admin.id)
+      clear_otp_verify_attempts!("admin_login", admin.id)
 
       AdminAuthMailer.forgot_password_otp(admin).deliver_later if admin.email.present?
 
@@ -458,7 +466,10 @@ module Api
         return unauthorized("Reset session expired. Verify OTP again.")
       end
 
-      if admin.update(password: params[:password], password_confirmation: params[:password_confirmation])
+      policy_error = password_policy_error(params[:password], params[:password_confirmation])
+      return render_password_policy_error(policy_error) if policy_error
+
+      if admin.update(password: params[:password], password_confirmation: params[:password].to_s)
         admin.update(otp_pin: nil, otp_sent_at: nil)
         admin.revoke_tokens!
         Rails.cache.delete(reset_flow_cache_key(admin.id))
@@ -474,9 +485,12 @@ module Api
         return unauthorized("Incorrect current password")
       end
 
+      policy_error = password_policy_error(params[:new_password], params[:confirm_password])
+      return render_password_policy_error(policy_error) if policy_error
+
       if current_admin.update(
         password: params[:new_password],
-        password_confirmation: params[:confirm_password]
+        password_confirmation: params[:new_password].to_s
       )
         # Sign out every other session; hand back a fresh token so this device stays signed in.
         current_admin.revoke_tokens!
@@ -495,6 +509,10 @@ module Api
     end
 
     def reactivate
+      unless @admin_user.approved?
+        return render json: { error: "Only an approved admin can be reactivated. Approve this admin's onboarding instead." }, status: :unprocessable_entity
+      end
+
       @admin_user.update!(status: "active")
       render json: { message: "Admin user reactivated successfully" }
     end
@@ -517,9 +535,64 @@ module Api
       )
     end
 
+    def truthy_param?(value)
+      ActiveModel::Type::Boolean.new.cast(value) == true
+    end
+
+    def pincodes_param_present?
+      container = params[:admin_user]
+      return false unless container.respond_to?(:key?)
+
+      container.key?(:pincodes) || truthy_param?(container[:pincodes_present]) || truthy_param?(container[:clear_pincodes])
+    end
+
+    def submitted_pincodes
+      return [] if truthy_param?(params.dig(:admin_user, :clear_pincodes))
+
+      params.dig(:admin_user, :pincodes)
+    end
+
+    def roles_param_present?
+      params.key?(:role_ids) || truthy_param?(params[:roles_present]) || truthy_param?(params[:clear_roles]) ||
+        truthy_param?(params.dig(:admin_user, :roles_present)) || truthy_param?(params.dig(:admin_user, :clear_roles))
+    end
+
+    DOCUMENT_KEEP_PARAMS = {
+      marksheets: :existing_marksheet_ids,
+      aadhar_card: :existing_aadhar_card_ids,
+      staff_profile_pic: :existing_staff_profile_pic_id,
+      pan_card: :existing_pan_card_id,
+      passbook: :existing_passbook_id
+    }.freeze
+
+    def apply_document_sync!(attrs)
+      container = params[:admin_user]
+      keep_aware = container.respond_to?(:key?) && DOCUMENT_KEEP_PARAMS.values.any? { |key| container.key?(key) }
+
+      DOCUMENT_KEEP_PARAMS.each do |name, keep_param|
+        keep_ids = keep_aware ? (keep_id_list(container, keep_param) || []) : nil
+        attachment = @admin_user.public_send(name)
+
+        if %i[marksheets aadhar_card].include?(name)
+          merged = merged_attachables(attachment.attachments, attrs[name], keep_ids)
+          merged.nil? ? attrs.delete(name) : attrs[name] = merged
+        elsif uploaded_files(attrs[name]).any?
+          next # a new single file replaces the old one
+        else
+          attrs.delete(name)
+          attrs[name] = nil if keep_ids && attachment.attached? && !keep_ids.include?(attachment.id.to_s)
+        end
+      end
+    end
+
     def find_admin_user
       @admin_user = AdminUser.find_by(id: params[:id])
-      unauthorized("Admin user not found") unless @admin_user
+      return if @admin_user
+
+      # login_otp is unauthenticated: keep it indistinguishable from a wrong OTP so ids can't be probed.
+      return unauthorized("Admin user not found") if action_name == "login_otp"
+
+      render json: { error: "Admin user not found" }, status: :not_found
     end
 
     def assign_pincodes!(admin, pincodes)
@@ -527,9 +600,10 @@ module Api
       
       invalid = pincodes.reject { |p| p.match?(/\A[1-9][0-9]{5}\z/) }
       if invalid.present?
-        raise "Invalid pincodes: #{invalid.join(', ')}"
+        admin.errors.add(:pincodes, "contain invalid pincodes: #{invalid.join(', ')}")
+        raise ActiveRecord::RecordInvalid.new(admin)
       end
-      
+
       admin.pincodes = pincodes
       admin.save!
     end
@@ -551,12 +625,16 @@ module Api
     end
 
     def normalized_role_ids
-      Array(params[:role_ids]).map(&:to_i).uniq
+      Array(params[:role_ids]).reject(&:blank?).map(&:to_i).uniq
     end
 
-    def assign_roles!(admin, role_ids)
+    def assign_roles!(admin, role_ids, allow_clear: false)
+      if role_ids.blank?
+        admin.roles = [] if allow_clear
+        return
+      end
+
       roles = Role.where(id: role_ids)
-      return if role_ids.blank?
 
       if roles.size != role_ids.size
         admin.errors.add(:roles, "contain invalid role ids")

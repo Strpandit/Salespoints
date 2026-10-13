@@ -6,7 +6,8 @@ class Brand < ApplicationRecord
   validates :name, :slug, presence: true, uniqueness: true
 
   before_validation :set_slug, on: [:create, :update]
-  before_destroy :check_for_products
+  after_validation { errors.delete(:slug) if errors[:name].any? }
+  before_destroy :check_for_products, prepend: true
 
   def check_for_products
     if products.exists?

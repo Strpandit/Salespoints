@@ -19,8 +19,9 @@ class Product < ApplicationRecord
   accepts_nested_attributes_for :product_variants, allow_destroy: true, reject_if: :reject_blank_product_variant?
   accepts_nested_attributes_for :product_variant_colors, allow_destroy: true, reject_if: :reject_blank_product_variant_color?
 
-  validates :name, presence: true, uniqueness: { case_sensitive: false }
-  validates :slug, presence: true, uniqueness: true
+  # Soft-deleted products (deleted_at set) must not keep their name/slug reserved - matches the partial unique indexes.
+  validates :name, presence: true, uniqueness: { case_sensitive: false, conditions: -> { where(deleted_at: nil) } }
+  validates :slug, presence: true, uniqueness: { conditions: -> { where(deleted_at: nil) } }
 
   validate :catalog_media_presence
   validate :media_files_valid

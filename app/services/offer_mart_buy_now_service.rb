@@ -23,6 +23,10 @@ class OfferMartBuyNowService
     raise StandardError, "Offer not found" unless offer
     raise StandardError, "This offer is no longer available" unless offer.live?
     raise StandardError, "Seller is currently unavailable" unless offer.dealer&.status == "active"
+    # Opt-in (BLOCK_OFFER_SELF_PURCHASE=true): a dealer may not buy their own Offer Mart offer.
+    if ENV["BLOCK_OFFER_SELF_PURCHASE"].to_s.downcase == "true" && @buyer.is_a?(Dealer) && @buyer.id == offer.dealer_id
+      raise StandardError, "You cannot buy your own offer"
+    end
     raise StandardError, "This offer is not available for your pincode" unless offer.pincodes.include?(@pincode)
     raise StandardError, "Only #{offer.remaining_quantity} unit(s) left for this offer" if offer.remaining_quantity < @quantity
 

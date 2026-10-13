@@ -262,7 +262,7 @@ module Api
       case next_status
       when "shipped"
         if order.is_a?(B2bOrder)
-          order.mark_shipped!(note: "params[:status_note]")
+          order.mark_shipped!(note: params[:status_note].to_s)
           EmailDispatcherService.b2b_order_shipped(order)
         elsif order.is_a?(Order)
           order.update!(

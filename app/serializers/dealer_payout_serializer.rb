@@ -6,7 +6,12 @@ class DealerPayoutSerializer < ApplicationSerializer
              :request_flow, :invoice_number, :gst_invoice, :requestable_type, :requestable_id,
              :bank_verification_status, :bank_verified, :settlement_ready_for_processing,
              :selected_orders, :total_gross, :total_commission, :penalty, :net_payout,
-             :payout_mode, :is_cod, :adjusted_cod_details
+             :payout_mode, :is_cod, :adjusted_cod_details, :metadata
+
+  # Only the dealer's request note is exposed (full metadata holds bank details).
+  def metadata
+    { request_note: (object.metadata || {})["request_note"] }
+  end
 
   def amount
     object.amount.to_f

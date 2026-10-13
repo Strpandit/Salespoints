@@ -16,8 +16,15 @@ module Api
     REVIEW_COUNT_SQL = "(SELECT COUNT(*) FROM reviews r WHERE r.product_id = products.id)".freeze
     before_action :find_product, only: [:show, :update, :destroy]
 
+    # Everything ProductSerializer reads per row, loaded in bulk (output is unchanged).
+    LIST_PRELOADS = [
+      { category: [:brands, :cat_filters, { cat_icon_attachment: :blob }] }, { brand: :categories }, :product_variants,
+      :product_specifications, { media_attachments: :blob },
+      { product_variant_colors: { media_attachments: :blob } }
+    ].freeze
+
     def index
-      products = Product.includes(:category, :brand, :product_variants)
+      products = Product.where(deleted_at: nil).includes(*LIST_PRELOADS)
 
       if params[:category_id].present? && params[:category_id] != "all"
         products = products.where(category_id: params[:category_id])
@@ -64,7 +71,7 @@ module Api
     end
 
     def active_products
-      products = Product.active.includes(:category, :brand, :product_variants)
+      products = Product.active.includes(*LIST_PRELOADS)
       products = apply_storefront_filters(products)
       products = apply_active_product_sort(products, params[:sort])
       per_page = (params[:per_page] || 20).to_i.clamp(1, 100)
@@ -159,7 +166,13 @@ module Api
     old_specs = @product.product_specifications.map { |s| [s.key, s.value] }.to_h
     old_media_count = @product.media.attached? ? @product.media_attachments.count : 0
 
-    if @product.update(normalized_product_params)
+    update_attrs = normalized_product_params
+    unless media_remains_after_update?(update_attrs, purge_blob_ids, color_purge_map)
+      return render json: { error: ["Add at least one image or video on the product or one of its colors"] }, status: :unprocessable_entity
+    end
+    update_attrs = preserve_existing_media(update_attrs)
+
+    if @product.update(update_attrs)
       purge_media_blobs!(@product, purge_blob_ids)
       apply_variant_media_purges!(variant_purge_map)
       apply_color_media_purges!(color_purge_map)
@@ -241,6 +254,51 @@ module Api
 
       attrs["product_variants_attributes"] = [fallback_variant]
       attrs
+    end
+
+    def color_attribute_list(attrs)
+      raw = attrs["product_variant_colors_attributes"]
+      return [] if raw.blank?
+      raw.is_a?(Hash) ? raw.values : Array(raw)
+    end
+
+    def uploaded_files(value)
+      Array(value).reject(&:blank?)
+    end
+
+    # Rails *replaces* a has_many_attached collection when files are assigned, but clients send only the
+    # newly picked files (removals go through purge_media_blob_ids). Re-assign the current blobs together
+    # with the new files so existing media is kept.
+    def preserve_existing_media(attrs)
+      new_files = uploaded_files(attrs["media"])
+      attrs["media"] = @product.media_blobs.to_a + new_files if new_files.any? && @product.media.attached?
+
+      color_attribute_list(attrs).each do |color_attrs|
+        files = uploaded_files(color_attrs["media"])
+        next if files.empty? || color_attrs["id"].blank?
+
+        color = @product.product_variant_colors.find_by(id: color_attrs["id"])
+        color_attrs["media"] = color.media_blobs.to_a + files if color&.media&.attached?
+      end
+      attrs
+    end
+
+    # A product must keep at least one image/video (on itself or on one of its colors) after the update.
+    def media_remains_after_update?(attrs, purge_blob_ids, color_purge_map)
+      kept = @product.media_attachments.count { |a| !Array(purge_blob_ids).include?(a.blob_id) } + uploaded_files(attrs["media"]).size
+      return true if kept.positive?
+
+      color_attrs_by_id = color_attribute_list(attrs).index_by { |c| c["id"].to_s }
+      existing = @product.product_variant_colors.reject do |color|
+        ActiveModel::Type::Boolean.new.cast(color_attrs_by_id[color.id.to_s]&.dig("_destroy"))
+      end
+      kept_in_colors = existing.sum do |color|
+        purged = Array(color_purge_map[color.id])
+        color.media_attachments.count { |a| !purged.include?(a.blob_id) } + uploaded_files(color_attrs_by_id[color.id.to_s]&.dig("media")).size
+      end
+      new_colors = color_attribute_list(attrs).select { |c| c["id"].blank? && !ActiveModel::Type::Boolean.new.cast(c["_destroy"]) }
+      kept_in_colors += new_colors.sum { |c| uploaded_files(c["media"]).size }
+      kept_in_colors.positive?
     end
 
     def normalize_text_list(val)
@@ -374,7 +432,7 @@ module Api
     end
 
     def check_permission
-      unless current_admin.can_access?(:products)
+      unless current_admin.can_access?(:products, :write)
         render json: { error: "You do not have permission to manage products"}, status: :forbidden
       end
     end

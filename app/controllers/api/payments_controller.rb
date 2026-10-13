@@ -2,7 +2,10 @@ module Api
   class PaymentsController < ApplicationController
     skip_before_action :authenticate_request!, only: [:cashfree_webhook, :payment_details, :verify_cashfree]
 
+    # verify is public (b2b payment links, return page), but only the buyer / admin / holder of the
+    # b2b payment token gets the full order payload; anyone else just gets the payment status.
     def verify_cashfree
+      optional_session!
       # 1. Resolve PaymentAttempt or Order from params
       raw_attempt_id = params[:payment_attempt_id].presence
       raw_order_id = params[:order_id].presence || params[:order_number].presence || params[:cf_order_id].presence
@@ -20,7 +23,10 @@ module Api
                   PaymentAttempt.find_by(gateway_order_reference: raw_order_id)
       end
 
-      return verify_payment_attempt_record!(attempt) if attempt.present?
+      if attempt.present?
+        @payment_owner = scoped_payment_attempts.exists?(id: attempt.id)
+        return verify_payment_attempt_record!(attempt)
+      end
 
       # 2. Look up Order directly
       order = nil
@@ -41,11 +47,13 @@ module Api
 
       return render json: { error: "Order or payment attempt not found" }, status: :not_found unless order
 
+      @payment_owner = scoped_orders.exists?(id: order.id)
+
       # Fast path: If order is already paid, return PAID immediately
       if order.payment_status == "paid"
         return render json: {
-          data: serialize_data(order, OrderSerializer),
-          order: serialize_data(order, OrderSerializer),
+          data: payment_order_payload(order),
+          order: payment_order_payload(order),
           payment_gateway_status: "PAID",
           status: "PAID",
           message: "Payment already confirmed successfully"
@@ -74,6 +82,8 @@ module Api
       when "PAID"
         order.with_lock do
           unless order.payment_status == "paid"
+            next if PaymentAmountGuard.hold_order?(order, order.total_amount, payload["order_amount"], payload)
+
             notify_admins_of_amount_mismatch(order, order.total_amount, payload["order_amount"]) if amount_mismatch?(order.total_amount, payload["order_amount"])
 
             order.mark_payment_paid!(reference: payload["cf_payment_id"] || payload["payment_id"], gateway_payload: payload)
@@ -98,16 +108,16 @@ module Api
       end
 
       render json: {
-        data: serialize_data(order.reload, OrderSerializer),
-        order: serialize_data(order.reload, OrderSerializer),
+        data: payment_order_payload(order.reload),
+        order: payment_order_payload(order.reload),
         payment_gateway_status: status,
         status: status
       }, status: :ok
     rescue StandardError => e
       if order&.reload&.payment_status == "paid"
         return render json: {
-          data: serialize_data(order, OrderSerializer),
-          order: serialize_data(order, OrderSerializer),
+          data: payment_order_payload(order),
+          order: payment_order_payload(order),
           payment_gateway_status: "PAID",
           status: "PAID",
           message: "Payment confirmed successfully"
@@ -117,8 +127,7 @@ module Api
     end
 
     def cancel_cashfree
-      attempt = scoped_payment_attempts.find_by(id: params[:payment_attempt_id]) ||
-                PaymentAttempt.find_by(id: params[:payment_attempt_id])
+      attempt = scoped_payment_attempts.find_by(id: params[:payment_attempt_id])
       return render json: { error: "Payment attempt not found" }, status: :not_found unless attempt
 
       attempt.update!(
@@ -182,6 +191,34 @@ module Api
 
     private
 
+    def optional_session!
+      token = bearer_token
+      return if token.blank?
+
+      user, user_type, failure = resolve_session(token)
+      return if failure
+
+      @current_user_type = user_type
+      @current_user = user
+    end
+
+    def payment_order_payload(records)
+      return redacted_payment_payload(records) unless @payment_owner
+
+      OrderSerializer.render(records, viewer_context)
+    end
+
+    def payment_b2b_payload(record)
+      return redacted_payment_payload(record) unless @payment_owner
+
+      B2bOrderSerializer.render(record)
+    end
+
+    def redacted_payment_payload(records)
+      pick = ->(o) { { id: o.id, status: o.status, payment_status: o.payment_status } }
+      records.respond_to?(:to_ary) ? records.to_ary.map(&pick) : pick.call(records)
+    end
+
     def verify_payment_attempt_record!(attempt)
       checkout_context = attempt.result_payload&.dig("checkout_context")
 
@@ -194,10 +231,13 @@ module Api
 
         return render json: { error: "Invalid payment link or order not found" }, status: :not_found unless order
 
+        @payment_owner ||= token.present? && order.payment_token.present? &&
+                           ActiveSupport::SecurityUtils.secure_compare(order.payment_token.to_s, token.to_s)
+
         if order.payment_status == "paid" || order.confirmed?
           return render json: {
-            data: B2bOrderSerializer.render(order),
-            b2b_order: B2bOrderSerializer.render(order),
+            data: payment_b2b_payload(order),
+            b2b_order: payment_b2b_payload(order),
             payment_attempt: serialize_payment_attempt(attempt.reload),
             payment_gateway_status: "PAID",
             status: "PAID",
@@ -213,8 +253,8 @@ module Api
         finalization = PaymentAttemptFinalizationService.new(payment_attempt: attempt).call
         if finalization.b2b_order.present?
           return render json: {
-            data: B2bOrderSerializer.render(finalization.b2b_order),
-            b2b_order: B2bOrderSerializer.render(finalization.b2b_order),
+            data: payment_b2b_payload(finalization.b2b_order),
+            b2b_order: payment_b2b_payload(finalization.b2b_order),
             payment_attempt: serialize_payment_attempt(attempt.reload),
             payment_gateway_status: "PAID",
             status: "PAID",
@@ -223,8 +263,8 @@ module Api
         end
 
         return render json: {
-          data: OrderSerializer.render(finalization.orders),
-          orders: OrderSerializer.render(finalization.orders),
+          data: payment_order_payload(finalization.orders),
+          orders: payment_order_payload(finalization.orders),
           payment_attempt: serialize_payment_attempt(attempt.reload),
           payment_gateway_status: "PAID",
           status: "PAID",
@@ -240,6 +280,16 @@ module Api
 
       case status
       when "PAID"
+        if PaymentAmountGuard.hold_attempt?(attempt, attempt.amount, payload["order_amount"], payload)
+          return render json: {
+            data: serialize_payment_attempt(attempt.reload),
+            payment_attempt: serialize_payment_attempt(attempt.reload),
+            payment_gateway_status: "PENDING_REVIEW",
+            status: "PENDING_REVIEW",
+            message: "Payment received but held for manual review (amount mismatch). Support will contact you."
+          }, status: :ok
+        end
+
         notify_admins_of_amount_mismatch(attempt, attempt.amount, payload["order_amount"]) if amount_mismatch?(attempt.amount, payload["order_amount"])
 
         mark_attempt_paid!(attempt, payload)
@@ -253,8 +303,8 @@ module Api
           )
 
           return render json: {
-            data: B2bOrderSerializer.render(finalization.b2b_order),
-            b2b_order: B2bOrderSerializer.render(finalization.b2b_order),
+            data: payment_b2b_payload(finalization.b2b_order),
+            b2b_order: payment_b2b_payload(finalization.b2b_order),
             payment_attempt: serialize_payment_attempt(attempt.reload),
             payment_gateway_status: status,
             status: status,
@@ -262,8 +312,8 @@ module Api
           }, status: :ok
         end
         render json: {
-          data: OrderSerializer.render(finalization.orders),
-          orders: OrderSerializer.render(finalization.orders),
+          data: payment_order_payload(finalization.orders),
+          orders: payment_order_payload(finalization.orders),
           payment_attempt: serialize_payment_attempt(attempt.reload),
           payment_gateway_status: status,
           status: status,
@@ -293,8 +343,8 @@ module Api
       if attempt&.reload&.processed? || attempt&.reload&.paid?
         finalization = PaymentAttemptFinalizationService.new(payment_attempt: attempt).call
         return render json: {
-          data: OrderSerializer.render(finalization.orders),
-          orders: OrderSerializer.render(finalization.orders),
+          data: payment_order_payload(finalization.orders),
+          orders: payment_order_payload(finalization.orders),
           payment_attempt: serialize_payment_attempt(attempt.reload),
           payment_gateway_status: "PAID",
           status: "PAID",

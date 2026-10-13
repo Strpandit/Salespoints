@@ -6,7 +6,8 @@ class InstantOrderRefundService
       refunded = false
 
       order.with_lock do
-        next unless order.payment_status.to_s.downcase == "paid"
+        next unless order.payment_status.to_s.downcase == "paid" ||
+                    (order.is_a?(Order) && order.payment_status.to_s.downcase == "partially_refunded")
         next if order.payment_method.to_s.downcase == "cod"
         next if order.respond_to?(:refund_status) && order.refund_status.to_s.downcase == "completed"
 
@@ -22,7 +23,9 @@ class InstantOrderRefundService
         next if order_reference.blank?
 
         refund_id = "REFUND-#{order.class.name.first(3).upcase}-#{order.id}-#{Time.current.to_i}"
-        refund_amount = order.total_amount.to_d.round(2)
+        # Never refund more than is still refundable (an earlier partial refund must not be paid twice).
+        already_refunded = order.is_a?(Order) ? order.refund_amount.to_d : 0.to_d
+        refund_amount = (order.total_amount.to_d - already_refunded).round(2)
 
         next unless refund_amount.positive?
 
@@ -45,7 +48,7 @@ class InstantOrderRefundService
           order.update!(
             payment_status: "refunded",
             refund_status: "completed",
-            refund_amount: refund_amount,
+            refund_amount: (already_refunded + refund_amount).round(2),
             refunded_at: Time.current,
             refund_reason: reason,
             status_note: [order.status_note, "Instant refund of ₹#{refund_amount} processed via Cashfree (Refund ID: #{refund_id})"].compact.join(" | ")

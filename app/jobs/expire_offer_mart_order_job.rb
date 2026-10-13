@@ -9,7 +9,10 @@ class ExpireOfferMartOrderJob < ApplicationJob
     return unless order.status == "pending"
     return if order.payment_status == "paid"
 
-    ActiveRecord::Base.transaction do
+    cancelled = false
+    order.with_lock do
+      next unless order.status == "pending" && order.payment_status != "paid"
+
       order.dealer_offer&.restore_quantity!(order.total_items)
       order.update!(
         status: "cancelled",
@@ -17,7 +20,9 @@ class ExpireOfferMartOrderJob < ApplicationJob
         cancelled_at: Time.current,
         status_note: "Offer Mart order cancelled — payment not completed in time"
       )
+      cancelled = true
     end
+    return unless cancelled
 
     NotificationService.deliver(
       recipient: order.buyer,

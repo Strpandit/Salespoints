@@ -32,6 +32,14 @@ module Api
 
     private
 
+    def parse_time(value)
+      return nil if value.blank?
+
+      Time.zone.parse(value.to_s)
+    rescue ArgumentError
+      nil
+    end
+
     def apply_ledger_filters(scope)
       if params[:entry_type].present? && params[:entry_type] != "all"
         scope = scope.where(entry_type: params[:entry_type])
@@ -41,12 +49,12 @@ module Api
         scope = scope.where(direction: params[:direction])
       end
 
-      if params[:start_date].present?
-        scope = scope.where("created_at >= ?", Time.zone.parse(params[:start_date].to_s).beginning_of_day)
+      if (from = parse_time(params[:start_date]))
+        scope = scope.where("created_at >= ?", from.beginning_of_day)
       end
 
-      if params[:end_date].present?
-        scope = scope.where("created_at <= ?", Time.zone.parse(params[:end_date].to_s).end_of_day)
+      if (to = parse_time(params[:end_date]))
+        scope = scope.where("created_at <= ?", to.end_of_day)
       end
 
       if params[:search].present?

@@ -43,7 +43,9 @@ class GoogleTokenVerifier
 
     def fetch_token_info(id_token)
       uri = URI("#{TOKEN_INFO_URL}?id_token=#{URI.encode_www_form_component(id_token)}")
-      response = Net::HTTP.get_response(uri)
+      response = Net::HTTP.start(uri.host, uri.port, use_ssl: uri.scheme == "https", open_timeout: 5, read_timeout: 8) do |http|
+        http.request(Net::HTTP::Get.new(uri))
+      end
       return nil unless response.is_a?(Net::HTTPSuccess)
 
       JSON.parse(response.body)

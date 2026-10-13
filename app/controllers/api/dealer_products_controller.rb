@@ -1,5 +1,17 @@
 module Api
   class DealerProductsController < ApplicationController
+    # Everything DealerProductSerializer reads per row, loaded in bulk (output is unchanged).
+    LIST_PRELOADS = [
+      { dealer: [{ dealer_profile: [{ store_image_attachments: :blob }, { aadhar_card_attachments: :blob },
+                                    { pan_card_attachment: :blob }, { gst_certificate_attachment: :blob },
+                                    { cancel_cheque_attachment: :blob }, { brand_invoices_attachments: :blob }] },
+                 :dealer_location] },
+      { product: [{ category: [:brands, :cat_filters, { cat_icon_attachment: :blob }] }, { brand: :categories },
+                  :product_variants, :product_specifications, { media_attachments: :blob },
+                  { product_variant_colors: { media_attachments: :blob } }] },
+      { product_variant: { product: [{ media_attachments: :blob }, :product_variant_colors] } }
+    ].freeze
+
     skip_before_action :authenticate_request!, only: [:shop_index, :similar, :check_pincode]
     before_action :set_dealer_product, only: [:show, :update, :update_stock, :approve, :reject, :revert_to_pending, :destroy, :toggle_active]
 
@@ -86,7 +98,7 @@ module Api
           items = items.order("dealer_products.created_at DESC")
         end
 
-        items = items.distinct.page(params[:page]).per(params[:per_page] || 20)
+        items = items.page(params[:page]).per(params[:per_page] || 20)
       elsif current_admin
         items = DealerProduct.left_outer_joins(:dealer, :product, :product_variant)
 
@@ -173,11 +185,12 @@ module Api
           items = items.order("dealer_products.created_at DESC")
         end
 
-        items = items.distinct.page(params[:page]).per(params[:per_page] || 20)
+        items = items.page(params[:page]).per(params[:per_page] || 20)
       else
         return unauthorized("Unauthorized")
       end
 
+      items = items.preload(*LIST_PRELOADS)
       render json: serialize_resource(items, DealerProductSerializer, base_url: request.base_url).merge(
         meta: {
           current_page: items.current_page,
@@ -222,6 +235,7 @@ module Api
 
       items = items.page(params[:page]).per(params[:per_page] || 20)
 
+      items = items.preload(*LIST_PRELOADS)
       render json: serialize_resource(items, DealerProductSerializer, base_url: request.base_url).merge(
         meta: {
           current_page: items.current_page,
@@ -342,8 +356,9 @@ module Api
     end
 
     def approve
-      return unauthorized("Admin only") unless current_admin
-      return unauthorized("Access denied") unless current_admin.can_access?(:dealer_products, :write)
+      return forbidden("Admin only") unless current_admin
+      return forbidden("Access denied") unless current_admin.can_access?(:dealer_products, :write)
+      return if reject_missing_dealer!
 
       if @dealer_product.stock_quantity.nil? || @dealer_product.stock_quantity <= 0
         return render json: { error: "Stock quantity must be greater than 0 before approval" }, status: :unprocessable_entity
@@ -364,8 +379,9 @@ module Api
     end
 
     def reject
-      return unauthorized("Admin only") unless current_admin
-      return unauthorized("Access denied") unless current_admin.can_access?(:dealer_products, :write)
+      return forbidden("Admin only") unless current_admin
+      return forbidden("Access denied") unless current_admin.can_access?(:dealer_products, :write)
+      return if reject_missing_dealer!
 
       if @dealer_product.approve_status == "rejected"
         return render json: { error: "Dealer product is already rejected" }, status: :unprocessable_entity
@@ -382,8 +398,9 @@ module Api
     end
 
     def revert_to_pending
-      return unauthorized("Admin only") unless current_admin
-      return unauthorized("Access denied") unless current_admin.can_access?(:dealer_products, :write)
+      return forbidden("Admin only") unless current_admin
+      return forbidden("Access denied") unless current_admin.can_access?(:dealer_products, :write)
+      return if reject_missing_dealer!
 
       if @dealer_product.approve_status != "rejected"
         return render json: { error: "Only rejected products can be reverted to pending" }, status: :unprocessable_entity
@@ -405,13 +422,8 @@ module Api
     end
 
     def toggle_active
-      return unauthorized("Unauthorized") unless authorized_dealer_product_action?
-
-      if @dealer_product.dealer.deleted_at.present?
-        return render json: { 
-          error: "Cannot activate product. Associated dealer is deleted." 
-        }, status: :unprocessable_entity
-      end
+      return forbidden("Access denied") unless authorized_dealer_product_action?
+      return if reject_missing_dealer!
 
       if @dealer_product.approve_status != "approved"
         return render json: { error: "Product must be approved before activation" }, status: :unprocessable_entity
@@ -555,6 +567,11 @@ module Api
     end
 
     private
+
+    # Dealers are nested next to products here: hide their private data from everyone but admins and the owner.
+    def viewer_context
+      super.merge(redact_dealer: true)
+    end
 
     def dealer_product_params
       params.require(:dealer_product).permit(
@@ -784,7 +801,12 @@ module Api
     def update_dealer_product_params
       dp_params = params[:dealer_product] || params
       attrs = {}
-      attrs[:product_variant_id] = dp_params[:product_variant_id] if dp_params.key?(:product_variant_id) && dp_params[:product_variant_id].present?
+      # A listing can only move between variants of its own (approved) product; pointing it at another
+      # product's variant would skip catalog approval.
+      if dp_params.key?(:product_variant_id) && dp_params[:product_variant_id].present? &&
+         ProductVariant.exists?(id: dp_params[:product_variant_id], product_id: @dealer_product.product_id)
+        attrs[:product_variant_id] = dp_params[:product_variant_id]
+      end
       attrs[:stock_quantity] = dp_params[:stock_quantity] if dp_params.key?(:stock_quantity) && dp_params[:stock_quantity].present?
       attrs[:color_stocks] = dp_params[:color_stocks] if dp_params.key?(:color_stocks)
       attrs[:sell_in_b2b] = ActiveModel::Type::Boolean.new.cast(dp_params[:sell_in_b2b]) if dp_params.key?(:sell_in_b2b)
@@ -813,6 +835,19 @@ module Api
 
     def visible_to_non_owner?
       @dealer_product.is_active? && @dealer_product.approved? && (@dealer_product.sell_in_b2b? || @dealer_product.sell_in_b2c?)
+    end
+
+    # Renders 422 and returns true when the product's dealer is missing or soft-deleted.
+    def reject_missing_dealer!
+      dealer = @dealer_product.dealer
+      return false if dealer && dealer.deleted_at.blank?
+
+      render json: { error: "Associated dealer is deleted or missing for this product" }, status: :unprocessable_entity
+      true
+    end
+
+    def forbidden(msg)
+      render json: { error: msg }, status: :forbidden and return
     end
 
     def unauthorized(msg)

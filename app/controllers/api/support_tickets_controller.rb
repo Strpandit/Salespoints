@@ -1,8 +1,13 @@
 module Api
   class SupportTicketsController < ApplicationController
+    rescue_from ActionController::ParameterMissing do |e|
+      render json: { success: false, error: "Missing required parameter: #{e.param}", errors: ["#{e.param} is required"] }, status: :unprocessable_entity
+    end
+
     before_action :set_ticket, only: [:show, :update, :add_message, :assign, :resolve, :close]
-    before_action :authorize_ticket_access!, only: [:show, :update, :add_message]
     before_action :authorize_admin_access!, only: [:assign, :resolve, :close, :statistics]
+    # assign / resolve / close are admin-only AND limited to tickets the admin may see (super admin, assignee or creator).
+    before_action :authorize_ticket_access!, only: [:show, :update, :add_message, :assign, :resolve, :close]
 
     def create
       ticket = SupportTicket.new(ticket_params)
@@ -26,7 +31,7 @@ module Api
         notify_admin_new_ticket(ticket)
         render json: { success: true, data: ticket_payload(ticket) }, status: :created
       else
-        render json: { success: false, errors: ticket.errors.full_messages }, status: :unprocessable_entity
+        render json: { success: false, error: ticket.errors.full_messages.to_sentence, errors: ticket.errors.full_messages }, status: :unprocessable_entity
       end
     end
 
@@ -87,12 +92,15 @@ module Api
     end
 
     def update
+      denied = owner_update_denied_message
+      return render json: { success: false, error: denied, errors: [denied] }, status: :forbidden if denied
+
       if @ticket.update(update_ticket_params)
         SupportMailer.ticket_updated(@ticket).deliver_later
         create_ticket_notification(@ticket, "Ticket updated")
         render json: { success: true, data: ticket_payload(@ticket, include_messages: true) }
       else
-        render json: { success: false, errors: @ticket.errors.full_messages }, status: :unprocessable_entity
+        render json: { success: false, error: @ticket.errors.full_messages.to_sentence, errors: @ticket.errors.full_messages }, status: :unprocessable_entity
       end
     end
 
@@ -119,12 +127,14 @@ module Api
         @ticket.update(status: "waiting_customer") if sender_type == "admin"
         render json: { success: true, data: message_payload(message) }
       else
-        render json: { success: false, errors: message.errors.full_messages }, status: :unprocessable_entity
+        render json: { success: false, error: message.errors.full_messages.to_sentence, errors: message.errors.full_messages }, status: :unprocessable_entity
       end
     end
 
     def assign
-      admin = AdminUser.find(params[:admin_id])
+      admin = AdminUser.find_by(id: params[:admin_id])
+      return render json: { success: false, error: "Admin not found" }, status: :not_found unless admin
+
       @ticket.assign_to_admin(admin)
       SupportMailer.ticket_assigned(@ticket, admin).deliver_later
       render json: { success: true, data: ticket_payload(@ticket, include_messages: true) }
@@ -193,6 +203,24 @@ module Api
 
     def ticket_params
       params.require(:ticket).permit(:subject, :description, :category, :priority)
+    end
+
+    # Customers / dealers only own their ticket: they may close it or re-open it, never touch priority
+    # or move it to staff-managed states (in_progress / waiting_customer / resolved). The web and mobile
+    # customer/dealer screens never PATCH a ticket, so this does not affect any existing client flow.
+    OWNER_ALLOWED_STATUSES = %w[open closed].freeze
+
+    def owner_update_denied_message
+      return nil if current_user_type == "AdminUser"
+
+      attrs = params.require(:ticket)
+      return "Only support staff can change ticket priority" if attrs.respond_to?(:key?) && attrs.key?(:priority)
+
+      if attrs.respond_to?(:key?) && attrs.key?(:status) && !OWNER_ALLOWED_STATUSES.include?(attrs[:status].to_s)
+        return "You can only close or re-open your own ticket"
+      end
+
+      nil
     end
 
     def update_ticket_params
@@ -271,7 +299,12 @@ module Api
         }
       }
 
-      payload[:messages] = ticket.messages.recent.map { |message| message_payload(message) } if include_messages
+      if include_messages
+        messages = ticket.messages.recent
+        # Internal staff notes are never shown to the customer / dealer who owns the ticket.
+        messages = messages.where(is_internal: [false, nil]) unless current_user_type == "AdminUser"
+        payload[:messages] = messages.map { |message| message_payload(message) }
+      end
       payload
     end
 

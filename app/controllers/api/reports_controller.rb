@@ -4,7 +4,11 @@ module Api
 
     # GET /api/reports/list
     def list
-      data = if current_user_type == "AdminUser"
+      render json: { success: true, data: report_catalog }
+    end
+
+    def report_catalog
+      if current_user_type == "AdminUser"
         [
           # Sales (8)
           { key: "sales_summary",        name: "Sales Summary Report",         group: "Sales",                formats: ["xlsx", "pdf"] },
@@ -88,15 +92,23 @@ module Api
           { key: "product_performance", name: "Product Performance & Velocity", group: "Inventory & Performance", formats: ["xlsx", "pdf"] }
         ]
       end
-      render json: { success: true, data: data }
     end
+    private :report_catalog
 
     # POST /api/reports/generate
     def generate
-      report_key  = params[:report_key].presence || params[:report_type].presence || "sales_summary"
+      report_key  = (params[:report_key].presence || params[:report_type].presence || "sales_summary").to_s
       format      = (params[:format].presence || "xlsx").to_s.downcase
       raw_filters = params[:filters] || params.slice(:period, :start_date, :end_date)
       filters     = raw_filters.respond_to?(:to_unsafe_h) ? raw_filters.to_unsafe_h : raw_filters
+
+      entry = report_catalog.find { |r| r[:key] == report_key }
+      return render_report_error("Unknown report_key '#{report_key}'") unless entry
+      unless entry[:formats].include?(format)
+        return render_report_error("Format '#{format}' is not available for this report. Allowed: #{entry[:formats].join(', ')}")
+      end
+      date_error = validate_report_dates(filters)
+      return render_report_error(date_error) if date_error
 
       scope = current_user_type == "AdminUser" ? :admin : :vendor
       user  = scope == :admin ? current_admin : current_dealer
@@ -165,8 +177,34 @@ module Api
 
     private
 
+    def render_report_error(message)
+      render json: { success: false, error: message }, status: :unprocessable_entity
+    end
+
+    def validate_report_dates(filters)
+      return nil unless filters.respond_to?(:[])
+      parsed = {}
+      %w[start_date end_date].each do |k|
+        raw = filters[k] || filters[k.to_sym]
+        next if raw.blank?
+        begin
+          parsed[k] = Date.parse(raw.to_s)
+        rescue ArgumentError, TypeError
+          return "Invalid #{k}: expected a valid date (YYYY-MM-DD)"
+        end
+      end
+      if parsed["start_date"] && parsed["end_date"] && parsed["start_date"] > parsed["end_date"]
+        return "start_date must not be after end_date"
+      end
+      nil
+    end
+
     def authorize_reports_access
-      return if current_user_type.in?(%w[AdminUser Dealer])
+      if current_user_type == "AdminUser"
+        return if current_admin.can_access?(:analytics, :read)
+        return render json: { success: false, error: "You do not have permission to view reports" }, status: :forbidden
+      end
+      return if current_user_type == "Dealer"
       render json: { success: false, error: "Access denied" }, status: :forbidden
     end
   end

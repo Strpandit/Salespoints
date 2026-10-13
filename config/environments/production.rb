@@ -109,7 +109,7 @@ Rails.application.configure do
     :password             => ENV['BREVO_PASS'],
     :authentication       => 'login',
     :enable_starttls_auto => true,
-    :open_timeout         => 30,
-    :read_timeout         => 30
+    :open_timeout         => 10,
+    :read_timeout         => 15
   }
 end

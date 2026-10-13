@@ -3,6 +3,7 @@ module Api
     skip_before_action :authenticate_request!, only: [ :index, :show, :check_pincode, :scheme_categories ]
     before_action :optional_authenticate, only: [ :index, :show, :check_pincode ]
     before_action :require_admin!, only: [ :pending, :approve, :reject ]
+    before_action :require_offer_review_permission!, only: [ :pending, :approve, :reject ]
     before_action :set_offer, only: [ :show, :update, :destroy, :toggle_active, :approve, :reject, :check_pincode, :buy, :reupload ]
 
     # GET /api/dealer_offers
@@ -155,6 +156,7 @@ module Api
     def pending
       offers = current_admin.accessible_dealer_offers(base_includes)
       offers = offers.where(approve_status: params[:status]) if params[:status].present? && params[:status] != "all"
+      offers = offers.by_pincode(params[:pincode].to_s.strip) if params[:pincode].present?
       offers = apply_common_filters(offers)
       offers = apply_sort(offers)
 
@@ -267,6 +269,16 @@ module Api
       return if current_admin.present?
 
       render json: { error: "Admin only" }, status: :forbidden
+    end
+
+    def require_offer_review_permission!
+      return unless current_admin.present?
+      return if current_admin.approver_admin?
+
+      level = action_name == "pending" ? :read : :write
+      return if current_admin.can_access?(:dealer_offers, level)
+
+      render json: { error: "Access denied" }, status: :forbidden
     end
 
     def set_offer

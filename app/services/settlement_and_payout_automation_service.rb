@@ -84,7 +84,7 @@ class SettlementAndPayoutAutomationService
       raise StandardError, "Payout is not in approved status" unless payout.approved?
       raise StandardError, "Dealer bank account is not verified" unless profile&.bank_verified?
 
-      DealerPayoutService.new(dealer: dealer).ensure_requestable_settlement_balance!(payout: payout, dealer: dealer)
+      DealerPayoutService.new(dealer: dealer).ensure_requestable_payout_amount!(payout: payout, dealer: dealer)
 
       # Step 1: Ensure beneficiary is onboarded
       ensure_beneficiary_onboarded!(dealer)

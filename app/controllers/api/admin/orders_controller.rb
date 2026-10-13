@@ -3,10 +3,36 @@ module Api
     class OrdersController < ApplicationController
       before_action :require_admin!
 
+      # Validates per_page itself (422 on <1); skip the base controller's silent fallback.
+      def strict_per_page?
+        true
+      end
+      private :strict_per_page?
+
+      DELIVERY_CONFIRMATION_PRELOADS = {
+        product_with_customer_image_attachment: :blob,
+        product_packaging_image_attachment: :blob,
+        product_open_box_images_attachments: :blob
+      }.freeze
+
+      RETAIL_PRELOADS = [
+        :buyer, :seller_dealer, :return_requests,
+        { order_items: [:product_variant_color, { product_variant: { product: { media_attachments: :blob } } }] },
+        { delivery_confirmation: DELIVERY_CONFIRMATION_PRELOADS },
+        { replacement_delivery_confirmation: DELIVERY_CONFIRMATION_PRELOADS }
+      ].freeze
+
+      B2B_PRELOADS = [
+        :buyer_dealer, :seller_dealer,
+        { b2b_order_items: [:product_variant_color, :dealer_product, { wholesaler_post: { media_attachments: :blob } }, { product_variant: { product: { media_attachments: :blob } } }] },
+        { delivery_confirmation: DELIVERY_CONFIRMATION_PRELOADS },
+        { replacement_delivery_confirmation: DELIVERY_CONFIRMATION_PRELOADS }
+      ].freeze
+
       def index
-        # Start with base queries
-        retail_orders = Order.includes(:buyer, :seller_dealer, order_items: { product_variant: :product })
-        b2b_orders = B2bOrder.includes(:buyer_dealer, :seller_dealer, b2b_order_items: { product_variant: :product })
+        # Filtering/sorting/pagination run on lightweight rows; only the requested page is loaded and serialised.
+        retail_orders = Order.all
+        b2b_orders = B2bOrder.all
 
         # ===== ORDER TYPE FILTER =====
         if params[:order_type].present?
@@ -40,22 +66,38 @@ module Api
         end
 
         # ===== DATE FILTER =====
-        if params[:date_from].present?
-          from = Date.parse(params[:date_from]).beginning_of_day
-          retail_orders = retail_orders.where("orders.created_at >= ?", from)
-          b2b_orders = b2b_orders.where("b2b_orders.created_at >= ?", from)
+        begin
+          if params[:date_from].present?
+            from = Date.parse(params[:date_from].to_s).beginning_of_day
+            retail_orders = retail_orders.where("orders.created_at >= ?", from)
+            b2b_orders = b2b_orders.where("b2b_orders.created_at >= ?", from)
+          end
+
+          if params[:date_to].present?
+            to = Date.parse(params[:date_to].to_s).end_of_day
+            retail_orders = retail_orders.where("orders.created_at <= ?", to)
+            b2b_orders = b2b_orders.where("b2b_orders.created_at <= ?", to)
+          end
+        rescue ArgumentError, TypeError
+          return render json: { error: "Invalid date_from/date_to: expected a valid date (YYYY-MM-DD)" }, status: :unprocessable_entity
         end
 
-        if params[:date_to].present?
-          to = Date.parse(params[:date_to]).end_of_day
-          retail_orders = retail_orders.where("orders.created_at <= ?", to)
-          b2b_orders = b2b_orders.where("b2b_orders.created_at <= ?", to)
+        # ===== PAGINATION PARAMS =====
+        page = [[params[:page].to_i, 1].max, 1_000_000].min
+        if params[:per_page].to_s.strip.empty?
+          per_page = 20
+        else
+          per_page = Integer(params[:per_page].to_s.strip, 10, exception: false)
+          if per_page.nil? || per_page < 1
+            return render json: { error: "per_page must be a positive integer" }, status: :unprocessable_entity
+          end
+          per_page = [per_page, 100].min
         end
 
         # ===== SEARCH =====
         if params[:search].present?
           query = "%#{params[:search].strip}%"
-          
+
           # Retail search
           retail_orders = retail_orders
             .joins("LEFT JOIN accounts ON orders.buyer_id = accounts.id AND orders.buyer_type = 'Account'")
@@ -64,7 +106,7 @@ module Api
               "orders.order_number ILIKE :q OR accounts.email ILIKE :q OR accounts.first_name ILIKE :q OR accounts.phone ILIKE :q OR buyer_dealers.email ILIKE :q OR buyer_dealers.first_name ILIKE :q OR buyer_dealers.dealer_code ILIKE :q OR buyer_dealers.phone ILIKE :q",
               q: query
             )
-          
+
           # B2B search
           b2b_orders = b2b_orders
             .joins("LEFT JOIN dealers AS buyers ON b2b_orders.buyer_dealer_id = buyers.id")
@@ -75,52 +117,63 @@ module Api
             )
         end
 
-        # ===== COMBINE AND TRANSFORM =====
-        all_orders = []
-
-        retail_orders.each do |order|
-          all_orders << transform_retail_order(order)
+        # ===== LIGHTWEIGHT ROWS (just what filtering/sorting needs) =====
+        rows = []
+        retail_orders.pluck("orders.id", "orders.created_at", "orders.total_amount", "orders.payment_method").each do |id, created_at, total, pm|
+          rows << { type: "retail", id: id, created_at: created_at.iso8601, total_amount: total.to_f, payment_method: pm }
         end
-
-        b2b_orders.each do |order|
-          all_orders << transform_b2b_order(order)
+        b2b_orders.pluck("b2b_orders.id", "b2b_orders.created_at", "b2b_orders.total_amount", "b2b_orders.payment_method").each do |id, created_at, total, pm|
+          rows << { type: "b2b", id: id, created_at: created_at.iso8601, total_amount: total.to_f, payment_method: pm }
         end
 
         # ===== PAYMENT METHOD FILTER =====
         if params[:payment_method].present? && params[:payment_method] != "all"
           if params[:payment_method] == "online"
-            all_orders = all_orders.select { |o| %w[online razorpay upi card netbanking].include?(o[:payment_method].to_s.downcase) || (o[:payment_method].to_s.downcase != "cod" && o[:payment_method].to_s.downcase != "cash") }
+            rows = rows.select { |o| %w[online razorpay upi card netbanking].include?(o[:payment_method].to_s.downcase) || (o[:payment_method].to_s.downcase != "cod" && o[:payment_method].to_s.downcase != "cash") }
           elsif params[:payment_method] == "cod"
-            all_orders = all_orders.select { |o| %w[cod cash pay_on_delivery].include?(o[:payment_method].to_s.downcase) || o[:payment_method].blank? }
+            rows = rows.select { |o| %w[cod cash pay_on_delivery].include?(o[:payment_method].to_s.downcase) || o[:payment_method].blank? }
           end
         end
 
         # ===== AMOUNT RANGE FILTER =====
         if params[:min_amount].present?
-          all_orders = all_orders.select { |o| o[:total_amount].to_f >= params[:min_amount].to_f }
+          rows = rows.select { |o| o[:total_amount].to_f >= params[:min_amount].to_f }
         end
         if params[:max_amount].present?
-          all_orders = all_orders.select { |o| o[:total_amount].to_f <= params[:max_amount].to_f }
+          rows = rows.select { |o| o[:total_amount].to_f <= params[:max_amount].to_f }
         end
 
         # ===== SORTING =====
         case params[:sort_by]
         when "oldest"
-          all_orders = all_orders.sort_by { |o| o[:created_at] }
+          rows = rows.sort_by { |o| o[:created_at] }
         when "amount_desc"
-          all_orders = all_orders.sort_by { |o| o[:total_amount].to_f }.reverse
+          rows = rows.sort_by { |o| o[:total_amount].to_f }.reverse
         when "amount_asc"
-          all_orders = all_orders.sort_by { |o| o[:total_amount].to_f }
+          rows = rows.sort_by { |o| o[:total_amount].to_f }
         else
-          all_orders = all_orders.sort_by { |o| o[:created_at] }.reverse
+          rows = rows.sort_by { |o| o[:created_at] }.reverse
         end
 
         # ===== PAGINATION =====
-        page = (params[:page] || 1).to_i
-        per_page = (params[:per_page] || 20).to_i
-        total_count = all_orders.length
-        
-        paginated = all_orders[(page - 1) * per_page, per_page] || []
+        total_count = rows.length
+        page_rows = rows[(page - 1) * per_page, per_page] || []
+
+        # ===== LOAD + SERIALISE ONLY THE PAGE =====
+        retail_ids = page_rows.select { |r| r[:type] == "retail" }.map { |r| r[:id] }
+        b2b_ids = page_rows.select { |r| r[:type] == "b2b" }.map { |r| r[:id] }
+        retail_by_id = retail_ids.empty? ? {} : Order.includes(*RETAIL_PRELOADS).where(id: retail_ids).index_by(&:id)
+        b2b_by_id = b2b_ids.empty? ? {} : B2bOrder.includes(*B2B_PRELOADS).where(id: b2b_ids).index_by(&:id)
+
+        paginated = page_rows.filter_map do |r|
+          if r[:type] == "retail"
+            order = retail_by_id[r[:id]]
+            order && transform_retail_order(order)
+          else
+            order = b2b_by_id[r[:id]]
+            order && transform_b2b_order(order)
+          end
+        end
 
         render json: {
           data: paginated,
@@ -195,7 +248,7 @@ module Api
           status: order.status,
           total_amount: order.total_amount.to_f,
           created_at: order.created_at.iso8601,
-          items_count: order.order_items.sum(:quantity),
+          items_count: order.order_items.sum { |i| i.quantity.to_i },
           
           # Customer Info
           customer_name: order.buyer&.full_name || order.buyer&.first_name || "Customer",

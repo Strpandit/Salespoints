@@ -10,23 +10,22 @@ class Dealer < ApplicationRecord
   has_many :dealer_products, dependent: :nullify
   has_many :dealer_offers, dependent: :destroy
   has_many :coupons, foreign_key: :created_by_dealer_id, dependent: :nullify
-  has_many :buyer_b2b_orders, class_name: "B2bOrder", foreign_key: :buyer_dealer_id, dependent: :destroy
-  has_many :seller_b2b_orders, class_name: "B2bOrder", foreign_key: :seller_dealer_id, dependent: :nullify
+  has_many :buyer_b2b_orders, class_name: "B2bOrder", foreign_key: :buyer_dealer_id
+  has_many :seller_b2b_orders, class_name: "B2bOrder", foreign_key: :seller_dealer_id
   has_many :b2b_order_offers, dependent: :destroy
   has_many :notifications, as: :receiver, dependent: :destroy
-  # Kept after the account is (soft) deleted so admins keep the approval history.
   has_many :deletion_requests, as: :requestable
   has_many :push_subscriptions, as: :subscriber, dependent: :destroy
   has_many :report_audit_logs, as: :user, dependent: :destroy
   has_many :products, through: :dealer_products
   has_many :wholesaler_posts, dependent: :destroy
   has_many :wholesaler_post_ratings, dependent: :destroy
-  has_many :orders, as: :buyer, dependent: :destroy
-  has_many :payment_attempts, as: :buyer, dependent: :destroy
-  has_many :sales_orders, class_name: "Order", foreign_key: :seller_dealer_id, dependent: :nullify
+  has_many :orders, as: :buyer
+  has_many :payment_attempts, as: :buyer
+  has_many :sales_orders, class_name: "Order", foreign_key: :seller_dealer_id
   has_many :order_items, through: :sales_orders
-  has_many :dealer_ledger_entries, dependent: :destroy
-  has_many :dealer_payouts, dependent: :destroy
+  has_many :dealer_ledger_entries
+  has_many :dealer_payouts
   has_many :support_tickets, foreign_key: "dealer_id", dependent: :destroy
   has_many :ticket_messages, foreign_key: "dealer_id", dependent: :destroy
   has_many :dealer_broadcast_trackers, dependent: :destroy
@@ -63,9 +62,12 @@ class Dealer < ApplicationRecord
     allow_nil: true,
     format: { with: /\ASPIN\d{4,}\z/, message: "must follow SPIN0001 format" }
 
-  validates :pincode, presence: true,
-                      format: { with: /\A[1-9][0-9]{5}\z/, message: "must be valid 6-digit pincode" },
-                      allow_blank: true
+  validates :pincode, presence: true, if: -> { new_record? || will_save_change_to_pincode? }
+  validates :pincode, format: { with: /\A[1-9][0-9]{5}\z/, message: "must be valid 6-digit pincode" },
+                      allow_blank: true, if: :will_save_change_to_pincode?
+  validates :phone, format: { with: /\A[0-9]{10}\z/, message: "must be a 10-digit number" },
+                    allow_blank: true, if: :will_save_change_to_phone?
+  validate { errors.add(:phone, "must be a 10-digit number") if @phone_input_invalid }
 
   def full_name
     [first_name, last_name].compact.join(" ")
@@ -146,8 +148,12 @@ class Dealer < ApplicationRecord
   end
   private
 
+  PHONE_ALLOWED_CHARS = /\A[0-9\s+\-()]*\z/
+
   def normalize_phone
+    @phone_input_invalid = phone.to_s.present? && !phone.to_s.match?(PHONE_ALLOWED_CHARS)
     mobile = phone.to_s.gsub(/\D/, '').sub(/^0+/, '')
+    mobile = mobile.delete_prefix("91") if mobile.length == 12 && mobile.start_with?("91")
     self.phone = mobile.presence
     if country_code.present?
       self.country_code = "+#{country_code.gsub(/\D/, '')}"

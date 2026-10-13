@@ -6,7 +6,10 @@ module Reports
 
         orders = Order.where(created_at: range).where.not(status: "cancelled")
         total_gmv   = orders.sum(:total_amount).to_f
-        total_comm  = orders.sum(:commission_amount).to_f
+        fin = Reports::OrderFinancials.new
+        comm_sum = BigDecimal("0")
+        orders.select(:id, :status, :payment_status, :refund_status, :total_amount, :commission_amount, :seller_settlement_amount).find_each { |o| comm_sum += fin.resolve(o).first }
+        total_comm  = comm_sum.to_f
         total_refunds = ReturnRequest.where(created_at: range, status: "completed").sum(:refund_amount).to_f
         net_platform_profit = total_comm - total_refunds
 
