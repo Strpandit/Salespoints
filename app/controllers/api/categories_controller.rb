@@ -14,7 +14,7 @@ module Api
           render json: { error: "Category not found" }, status: :not_found
         end
       else
-        categories = Category.includes(:brands, :cat_filters, cat_icon_attachment: :blob).where(is_active: true).order(created_at: :desc).page(params[:page]).per(params[:per_page] || 20)
+        categories = Category.includes(:brands, :cat_filters, cat_icon_attachment: :blob).where(is_active: true).order(created_at: :asc, id: :asc).page(params[:page]).per(params[:per_page] || 20)
         if categories.exists?
           render json: serialize_resource(categories, CategorySerializer, base_url: request.base_url).merge(
             meta: {
