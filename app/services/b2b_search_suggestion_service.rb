@@ -93,10 +93,7 @@ class B2bSearchSuggestionService
   end
 
   def self.extract_tokens(query)
-    clean = query.to_s.strip.downcase.gsub(/[^a-z0-9\.\-]/, " ")
-    tokens = clean.split(/\s+/).reject { |t| t.blank? || t.length < 2 }
-    tokens = [query.strip.downcase] if tokens.empty? && query.present?
-    tokens.uniq
+    SearchQuery.tokens(query)
   end
 
   def self.find_wholesaler_posts(query, buyer_dealer, pincode)

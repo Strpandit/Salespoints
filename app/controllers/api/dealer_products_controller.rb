@@ -220,8 +220,11 @@ module Api
       end
 
       if params[:search].present?
-        query = params[:search].strip
-        items = items.joins(:product).where("products.name ILIKE ?", "%#{query}%")
+        items = SearchQuery.apply(items.joins(:product), params[:search], [
+          "products.name ILIKE :p",
+          "products.hsn_code ILIKE :p",
+          "dealer_products.product_variant_id IN (SELECT id FROM product_variants WHERE variant_sku ILIKE :p OR hsn_code ILIKE :p)"
+        ])
       end
 
       case params[:sort]
@@ -637,9 +640,12 @@ module Api
       end
 
       if params[:search].present?
-        query = params[:search].strip
-        base_scope = base_scope.joins(:product)
-                              .where("products.name ILIKE :q OR products.slug ILIKE :q", q: "%#{query}%")
+        base_scope = SearchQuery.apply(base_scope.joins(:product), params[:search], [
+          "products.name ILIKE :p",
+          "products.slug ILIKE :p",
+          "products.hsn_code ILIKE :p",
+          "dealer_products.product_variant_id IN (SELECT id FROM product_variants WHERE variant_sku ILIKE :p OR hsn_code ILIKE :p)"
+        ])
       end
 
       brands = base_scope.joins(product: :brand)

@@ -26,12 +26,18 @@ module Api
         return render json: { valid: false, error: "Verification link or token is invalid.", verified_or_expired: true }, status: :unprocessable_entity
       end
 
-      if admin.signup_token.blank? || admin.otp_pin.blank?
+      if admin.signup_token.blank? && admin.otp_pin.blank?
         return render json: { valid: false, error: "This signup verification link has already been used or verified. Please log in.", verified_or_expired: true }, status: :unprocessable_entity
       end
 
       unless admin.token_valid?(params[:token] || admin.signup_token)
-        return render json: { valid: false, error: "Verification link has expired (10 min limit). Please request a new OTP.", verified_or_expired: true }, status: :unprocessable_entity
+        return render json: {
+          valid: false,
+          expired: true,
+          error: "Verification link has expired (10 min limit). Please request a new OTP.",
+          email: admin.email,
+          id: admin.id
+        }, status: :ok
       end
 
       render json: { valid: true, email: admin.email, id: admin.id }
@@ -188,7 +194,7 @@ module Api
     end
 
     def resend_signup_otp
-      admin = find_signup_admin || AdminUser.find_by(id: params[:id])
+      admin = find_signup_admin
       unless admin
         return render json: { error: "Admin not found" }, status: :not_found
       end
@@ -657,9 +663,14 @@ module Api
     end
 
     def find_signup_admin
-      token_or_id = params[:token].presence || params[:id].presence
-      admin = AdminUser.find_by(signup_token: token_or_id) if token_or_id.present?
-      admin ||= AdminUser.find_by(id: token_or_id) if token_or_id.present?
+      token = params[:token].presence || params[:id].presence
+      admin = AdminUser.find_by(signup_token: token) if token.present?
+
+      if admin.nil? && current_admin&.super_admin?
+        admin_id = params[:id].presence || params[:token].presence
+        admin = AdminUser.find_by(id: admin_id) if admin_id.present? && admin_id.to_s.match?(/\A\d+\z/)
+      end
+
       admin
     end
 

@@ -340,13 +340,13 @@ module Api
       end
 
       if params[:search].present?
-        q = "%#{ActiveRecord::Base.sanitize_sql_like(params[:search].strip)}%"
-        scope = scope.where(
-          "products.name ILIKE :q OR products.brand_id IN (SELECT id FROM brands WHERE name ILIKE :q) " \
-          "OR products.category_id IN (SELECT id FROM categories WHERE name ILIKE :q) " \
-          "OR products.id IN (SELECT product_id FROM product_variants WHERE variant_sku ILIKE :q AND deleted_at IS NULL)",
-          q: q
-        )
+        scope = SearchQuery.apply(scope, params[:search], [
+          "products.name ILIKE :p",
+          "products.hsn_code ILIKE :p",
+          "products.brand_id IN (SELECT id FROM brands WHERE name ILIKE :p)",
+          "products.category_id IN (SELECT id FROM categories WHERE name ILIKE :p)",
+          "products.id IN (SELECT product_id FROM product_variants WHERE (variant_sku ILIKE :p OR hsn_code ILIKE :p) AND deleted_at IS NULL)"
+        ])
       end
 
       unless skip.include?(:brands)

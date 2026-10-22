@@ -332,11 +332,11 @@ module Api
       scope = scope.where("dealer_offers.offer_price <= ?", params[:max_price].to_f) if params[:max_price].present?
 
       if params[:search].present?
-        q = "%#{params[:search].strip}%"
-        scope = scope.where(
-          "dealer_offers.device_model ILIKE :q OR dealer_offers.seller_code ILIKE :q OR dealer_offers.variant_name ILIKE :q",
-          q: q
-        )
+        scope = SearchQuery.apply(scope, params[:search], [
+          "dealer_offers.device_model ILIKE :p",
+          "dealer_offers.seller_code ILIKE :p",
+          "dealer_offers.variant_name ILIKE :p"
+        ])
       end
 
       scope

@@ -21,20 +21,24 @@ module Api
         return render json: { valid: false, error: "Verification link or token is invalid.", verified_or_expired: true }, status: :unprocessable_entity
       end
 
-      if dealer.signup_token.blank? || dealer.otp_pin.blank?
+      if dealer.signup_token.blank? && dealer.otp_pin.blank?
         return render json: { valid: false, error: "This signup verification link has already been used or verified. Please log in.", verified_or_expired: true }, status: :unprocessable_entity
       end
 
       unless dealer.token_valid?(params[:token] || dealer.signup_token)
-        return render json: { valid: false, error: "Verification link has expired (10 min limit). Please request a new OTP.", verified_or_expired: true }, status: :unprocessable_entity
+        return render json: {
+          valid: false,
+          expired: true,
+          error: "Verification link has expired (10 min limit). Please request a new OTP.",
+          email: dealer.email,
+          id: dealer.id
+        }, status: :ok
       end
 
       render json: { valid: true, email: dealer.email, id: dealer.id }
     end
 
     def index
-      # require_admin guarantees an admin caller. Other admin screens (payouts, revenue, bulk deals, offers,
-      # orders, analytics...) use this list as a dealer picker, so any of those modules is enough.
       dealer_list_modules = %i[dealers dealer_products dealer_profiles dealer_locations payouts payout_requests wholesaler_posts dealer_offers orders analytics]
       unless dealer_list_modules.any? { |m| current_admin.can_access?(m, :read) }
         return render json: { error: "You do not have permission to view dealers" }, status: :forbidden
@@ -218,7 +222,6 @@ module Api
       end
 
       create_attrs = dealer_params.except(:status)
-      # Verification flag is an admin decision; public signup cannot self-verify.
       create_attrs[:dealer_profile_attributes]&.delete(:is_verified) unless signup_caller_is_admin?
       dealer = Dealer.new(create_attrs)
       dealer.status = "pending"
@@ -244,7 +247,7 @@ module Api
     end
 
     def resend_signup_otp
-      dealer = find_signup_dealer || Dealer.find_by(id: params[:id])
+      dealer = find_signup_dealer
       unless dealer
         return render json: { error: "Dealer not found" }, status: :not_found
       end
@@ -908,9 +911,14 @@ module Api
     end
 
     def find_signup_dealer
-      token_or_id = params[:token].presence || params[:id].presence
-      dealer = Dealer.find_by(signup_token: token_or_id) if token_or_id.present?
-      dealer ||= Dealer.find_by(id: token_or_id) if token_or_id.present?
+      token = params[:token].presence || params[:id].presence
+      dealer = Dealer.find_by(signup_token: token) if token.present?
+
+      if dealer.nil? && signup_caller_is_admin?
+        dealer_id = params[:id].presence || params[:token].presence
+        dealer = Dealer.find_by(id: dealer_id) if dealer_id.present? && dealer_id.to_s.match?(/\A\d+\z/)
+      end
+
       dealer
     end
 
