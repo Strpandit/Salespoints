@@ -199,8 +199,13 @@ module Api
         return render json: { error: "Admin not found" }, status: :not_found
       end
 
-      if admin.signup_token.blank? && admin.otp_pin.blank?
-        return render json: { error: "Admin already verified. Please log in.", verified_or_expired: true }, status: :unprocessable_entity
+      caller_admin = authenticated_caller_admin
+      if caller_admin.nil? || !caller_admin.super_admin?
+        if admin.signup_token.blank? && admin.otp_pin.blank?
+          return render json: { error: "Admin already verified. Please log in.", verified_or_expired: true }, status: :unprocessable_entity
+        end
+      elsif admin.active? && admin.approved? && admin.otp_pin.blank?
+        return render json: { error: "Admin already verified and active. Please log in.", verified_or_expired: true }, status: :unprocessable_entity
       end
 
       new_token = admin.generate_signup_token!
@@ -498,7 +503,6 @@ module Api
         password: params[:new_password],
         password_confirmation: params[:new_password].to_s
       )
-        # Sign out every other session; hand back a fresh token so this device stays signed in.
         current_admin.revoke_tokens!
         render json: { message: "Password changed successfully", token: JsonWebToken.issue_for(current_admin) }
       else
@@ -662,20 +666,43 @@ module Api
       "admin_password_reset_verified:#{admin_id}"
     end
 
-    def find_signup_admin
-      token = params[:token].presence || params[:id].presence
-      admin = AdminUser.find_by(signup_token: token) if token.present?
+    def authenticated_caller_admin
+      return @current_user if @current_user.present? && @current_user_type == "AdminUser"
+      return nil if bearer_token.blank?
 
-      if admin.nil? && current_admin&.super_admin?
-        admin_id = params[:id].presence || params[:token].presence
-        admin = AdminUser.find_by(id: admin_id) if admin_id.present? && admin_id.to_s.match?(/\A\d+\z/)
+      user, user_type, failure = resolve_session(bearer_token)
+      return nil if failure || user_type != "AdminUser"
+
+      @current_user = user
+      @current_user_type = user_type
+      user
+    end
+
+    def find_signup_admin
+      caller_admin = authenticated_caller_admin
+      admin_id = params[:id].presence
+
+      if caller_admin&.approver_admin? && admin_id.present? && admin_id.to_s.match?(/\A\d+\z/)
+        admin = AdminUser.find_by(id: admin_id)
+        return admin if admin
       end
 
-      admin
+      token = params[:token].presence || (admin_id unless admin_id.to_s.match?(/\A\d+\z/))
+      if token.present?
+        admin = AdminUser.find_by(signup_token: token)
+        return admin if admin
+      end
+
+      if caller_admin&.approver_admin? && params[:token].present? && params[:token].to_s.match?(/\A\d+\z/)
+        admin = AdminUser.find_by(id: params[:token])
+        return admin if admin
+      end
+
+      nil
     end
 
     def current_admin
-      current_user
+      @current_user || (authenticated_caller_admin if bearer_token.present?)
     end
 
     def require_admin_approver!
