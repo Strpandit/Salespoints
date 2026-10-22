@@ -119,7 +119,7 @@ module Api
     end
 
     def unauthorized(message)
-      render json: { error: message }, status: :unauthorized and return
+      render json: { error: message, code: "session_invalid" }, status: :unauthorized and return
     end
 
     def current_admin
