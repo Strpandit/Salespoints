@@ -4,33 +4,52 @@ require "uri"
 require "json"
 
 class PushNotificationService
-  FCM_LEGACY_URL = "https://fcm.googleapis.com/fcm/send".freeze
   EXPO_PUSH_URL = "https://exp.host/--/api/v2/push/send".freeze
   GOOGLE_OAUTH_TOKEN_URL = "https://oauth2.googleapis.com/token".freeze
   FCM_SCOPE = "https://www.googleapis.com/auth/firebase.messaging".freeze
+  RETRYABLE_STATUS_CODES = [429, 500, 502, 503, 504].freeze
+  TRANSIENT_ERRORS = [Net::OpenTimeout, Net::ReadTimeout, Errno::ECONNRESET, Errno::ECONNREFUSED, SocketError, OpenSSL::SSL::SSLError].freeze
+  INTERNAL_PAYLOAD_KEYS = %w[delivery_channels visible_in_app notifiable_type notifiable_id].freeze
 
-  def deliver(notification)
+  def deliver(notification, tokens: nil)
     channels = notification.delivery_channels
-    return if channels.key?("push") && channels["push"] == false
+    return [] if channels.key?("push") && channels["push"] == false
 
-    tokens = PushSubscription.where(subscriber: notification.receiver).distinct.pluck(:token)
-    return if tokens.empty?
+    subscriptions = PushSubscription.where(subscriber: notification.receiver)
+    subscriptions = subscriptions.where(token: tokens) if tokens.present?
+    tokens = subscriptions.distinct.pluck(:token)
+    return [] if tokens.empty?
 
     creds = firebase_credentials
-    server_key = ENV["FCM_SERVER_KEY"].to_s
+    if creds.blank? && tokens.any? { |token| !expo_token?(token) }
+      Rails.logger.error("[PushNotificationService] No Firebase credentials configured; FCM tokens skipped for notification=#{notification.id}")
+    end
+
+    data_payload = build_data_payload(notification)
+    retryable = []
 
     tokens.each do |token|
-      if token.start_with?("ExponentPushToken[") || token.start_with?("ExpoPushToken[")
-        send_expo_push(token, notification)
-      elsif creds.present?
-        send_fcm_v1_push(token, notification, creds)
-      elsif server_key.present?
-        send_fcm_legacy_push(token, notification, server_key)
+      result =
+        if expo_token?(token)
+          send_expo_push(token, notification, data_payload)
+        elsif creds.present?
+          send_fcm_v1_push(token, notification, data_payload, creds)
+        end
+
+      case result
+      when :stale then PushSubscription.where(token: token).destroy_all
+      when :retry then retryable << token
       end
     end
+
+    retryable
   end
 
   private
+
+  def expo_token?(token)
+    token.start_with?("ExponentPushToken[") || token.start_with?("ExpoPushToken[")
+  end
 
   def determine_channel_id(notif_type)
     type = notif_type.to_s
@@ -103,18 +122,12 @@ class PushNotificationService
       base["params"] = { postId: payload["wholesaler_post_id"] }.to_json
     end
 
-    base.merge(flat_string_data(payload))
+    base.merge(flat_string_data(payload.except(*INTERNAL_PAYLOAD_KEYS)))
   end
 
-  def send_fcm_v1_push(device_token, notification, creds)
+  def send_fcm_v1_push(device_token, notification, data_payload, creds, refreshed: false)
     access_token = fetch_oauth_access_token(creds)
-    return send_fcm_legacy_push(device_token, notification, ENV["FCM_SERVER_KEY"]) if access_token.blank? && ENV["FCM_SERVER_KEY"].present?
-    return if access_token.blank?
-
-    project_id = creds["project_id"]
-    endpoint = "https://fcm.googleapis.com/v1/projects/#{project_id}/messages:send"
-    channel_id = determine_channel_id(notification.notification_type)
-    data_payload = build_data_payload(notification)
+    return :retry if access_token.blank?
 
     message = {
       message: {
@@ -127,9 +140,8 @@ class PushNotificationService
         android: {
           priority: "high",
           notification: {
-            channel_id: channel_id,
-            sound: "default",
-            click_action: "FLUTTER_NOTIFICATION_CLICK"
+            channel_id: determine_channel_id(notification.notification_type),
+            sound: "default"
           }
         },
         apns: {
@@ -143,8 +155,8 @@ class PushNotificationService
       }
     }
 
-    HTTParty.post(
-      endpoint,
+    response = HTTParty.post(
+      "https://fcm.googleapis.com/v1/projects/#{creds['project_id']}/messages:send",
       headers: {
         "Authorization" => "Bearer #{access_token}",
         "Content-Type" => "application/json; UTF-8"
@@ -152,46 +164,47 @@ class PushNotificationService
       body: message.to_json,
       timeout: 10
     )
+
+    if response.code == 401 && !refreshed
+      Rails.cache.delete(oauth_cache_key(creds)) rescue nil
+      return send_fcm_v1_push(device_token, notification, data_payload, creds, refreshed: true)
+    end
+
+    classify_fcm_response(response, notification, device_token)
+  rescue *TRANSIENT_ERRORS => e
+    Rails.logger.warn("[PushNotificationService] FCM v1 network error for notification=#{notification.id}: #{e.class} #{e.message}")
+    :retry
   rescue StandardError => e
-    Rails.logger.warn("[PushNotificationService] FCM v1 deliver failed: #{e.message}")
+    Rails.logger.warn("[PushNotificationService] FCM v1 deliver failed for notification=#{notification.id}: #{e.message}")
+    :failed
   end
 
-  def send_fcm_legacy_push(device_token, notification, server_key)
-    notif_type = notification.notification_type.to_s
-    channel_id = determine_channel_id(notif_type)
-    data_payload = build_data_payload(notification)
+  def classify_fcm_response(response, notification, device_token)
+    code = response.code.to_i
+    return :ok if code.between?(200, 299)
 
-    body = {
-      to: device_token,
-      priority: "high",
-      content_available: true,
-      notification: {
-        title: notification.title.to_s.truncate(120),
-        body: notification.body.to_s.truncate(240),
-        sound: "default",
-        android_channel_id: channel_id,
-        click_action: "FLUTTER_NOTIFICATION_CLICK"
-      },
-      data: data_payload
-    }
+    error = fcm_error(response)
+    message = error["message"].to_s
+    error_codes = Array(error["details"]).map { |detail| detail["errorCode"] if detail.is_a?(Hash) }.compact
 
-    HTTParty.post(
-      FCM_LEGACY_URL,
-      headers: {
-        "Authorization" => "key=#{server_key}",
-        "Content-Type" => "application/json"
-      },
-      body: body.to_json,
-      timeout: 10
-    )
-  rescue StandardError => e
-    Rails.logger.warn("[PushNotificationService] FCM legacy deliver failed: #{e.message}")
+    if error_codes.include?("UNREGISTERED") || (code == 400 && message.include?("registration token"))
+      Rails.logger.info("[PushNotificationService] Removing dead token ...#{device_token.last(6)} (notification=#{notification.id})")
+      return :stale
+    end
+
+    Rails.logger.warn("[PushNotificationService] FCM #{code} #{error['status']} for notification=#{notification.id} token=...#{device_token.last(6)}: #{message}")
+    RETRYABLE_STATUS_CODES.include?(code) ? :retry : :failed
   end
 
-  def send_expo_push(expo_token, notification)
-    notif_type = notification.notification_type.to_s
-    channel_id = determine_channel_id(notif_type)
-    data_payload = build_data_payload(notification)
+  def fcm_error(response)
+    parsed = JSON.parse(response.body.to_s)
+    parsed.is_a?(Hash) && parsed["error"].is_a?(Hash) ? parsed["error"] : {}
+  rescue JSON::ParserError
+    {}
+  end
+
+  def send_expo_push(expo_token, notification, data_payload)
+    channel_id = determine_channel_id(notification.notification_type)
 
     body = {
       to: expo_token,
@@ -213,8 +226,10 @@ class PushNotificationService
       body: body.to_json,
       timeout: 10
     )
+    :ok
   rescue StandardError => e
     Rails.logger.warn("[PushNotificationService] Expo deliver failed: #{e.message}")
+    :failed
   end
 
   def firebase_credentials
@@ -238,8 +253,12 @@ class PushNotificationService
     nil
   end
 
+  def oauth_cache_key(creds)
+    "fcm_v1_access_token_#{creds['project_id']}"
+  end
+
   def fetch_oauth_access_token(creds)
-    cache_key = "fcm_v1_access_token_#{creds['project_id']}"
+    cache_key = oauth_cache_key(creds)
     cached = Rails.cache.read(cache_key) rescue nil
     return cached if cached.present?
 

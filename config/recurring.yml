@@ -42,3 +42,9 @@ production:
     class: DealerOfferExpiryReminderJob
     queue: cleanup
     schedule: every 10 minutes
+
+  smart_engagement_reminders:
+    class: SmartEngagementRemindersJob
+    queue: default
+    schedule: every hour
+
