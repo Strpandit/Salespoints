@@ -44,6 +44,7 @@ Rails.application.routes.draw do
     get "storefront/flash_sale", to: "storefront#flash_sale"
     resources :push_subscriptions, only: [:create]
     delete "push_subscriptions", to: "push_subscriptions#destroy"
+    get "locations/reverse_geocode", to: "locations#reverse_geocode"
     resources :dealer_orders, only: [:index, :show]
     resources :accounts do
       put :change_password, on: :member

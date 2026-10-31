@@ -43,6 +43,37 @@ class GoogleMapsService
     }
   end
 
+  GEOCODE_URL = "https://maps.googleapis.com/maps/api/geocode/json".freeze
+
+  def reverse_geocode_for_address(lat, lng)
+    return nil if @api_key.blank? || lat.blank? || lng.blank?
+
+    response = HTTParty.get(GEOCODE_URL, query: { latlng: "#{lat},#{lng}", key: @api_key, language: "en", region: "in" }, timeout: 6)
+    return nil unless response.success?
+
+    data = JSON.parse(response.body)
+    return nil unless data["status"] == "OK"
+
+    result = Array(data["results"]).find { |r| address_component(r, "postal_code").present? }
+    return nil if result.blank?
+
+    line1 = [address_component(result, "premise"), address_component(result, "street_number"), address_component(result, "route")].compact_blank.join(", ")
+    area = address_component(result, "sublocality_level_1") || address_component(result, "sublocality") || address_component(result, "neighborhood")
+    {
+      address_line1: line1.presence || area.to_s,
+      address_line2: line1.present? ? area.to_s : "",
+      city: address_component(result, "locality") || address_component(result, "administrative_area_level_2"),
+      state: address_component(result, "administrative_area_level_1"),
+      postal_code: address_component(result, "postal_code"),
+      country: address_component(result, "country") || "India",
+      formatted_address: result["formatted_address"],
+      location_type: result.dig("geometry", "location_type")
+    }
+  rescue StandardError => e
+    Rails.logger.warn("[GoogleMapsService] reverse_geocode_for_address failed: #{e.class} #{e.message}")
+    nil
+  end
+
   # ✅ Distance Matrix - Driving Distance between points
   def distance_matrix(origins, destinations)
     return nil if origins.blank? || destinations.blank?
@@ -159,6 +190,11 @@ class GoogleMapsService
       state: result['address_components']&.find { |c| c['types'].include?('administrative_area_level_1') }&.dig('long_name')
     }
   end
+
+  def address_component(result, type)
+    Array(result["address_components"]).find { |c| Array(c["types"]).include?(type) }&.dig("long_name")
+  end
+  private :address_component
 
   # ✅ Validate address
   def validate_address(address)

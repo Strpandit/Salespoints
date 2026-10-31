@@ -9,6 +9,7 @@ module Api
       sub = PushSubscription.find_or_initialize_by(token: token)
       sub.subscriber = current_user
       sub.platform = platform
+      sub.supports_ring = ActiveModel::Type::Boolean.new.cast(params[:supports_ring]) == true
       sub.save!
 
       render json: { message: "Registered" }, status: :ok
@@ -16,7 +17,6 @@ module Api
       render json: { error: e.record.errors.full_messages }, status: :unprocessable_entity
     end
 
-    # Called on logout so this device stops receiving the signed-out user's notifications.
     def destroy
       token = params[:token].to_s.strip
       return render json: { error: "token is required" }, status: :unprocessable_entity if token.blank?

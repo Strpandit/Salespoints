@@ -10,6 +10,8 @@ class PushNotificationService
   RETRYABLE_STATUS_CODES = [429, 500, 502, 503, 504].freeze
   TRANSIENT_ERRORS = [Net::OpenTimeout, Net::ReadTimeout, Errno::ECONNRESET, Errno::ECONNREFUSED, SocketError, OpenSSL::SSL::SSLError].freeze
   INTERNAL_PAYLOAD_KEYS = %w[delivery_channels visible_in_app notifiable_type notifiable_id].freeze
+  RING_KINDS = %w[b2c_order_broadcast b2b_order_broadcast].freeze
+  RING_TTL = "180s".freeze
 
   def deliver(notification, tokens: nil)
     channels = notification.delivery_channels
@@ -17,8 +19,10 @@ class PushNotificationService
 
     subscriptions = PushSubscription.where(subscriber: notification.receiver)
     subscriptions = subscriptions.where(token: tokens) if tokens.present?
+    ring_capable = subscriptions.where(supports_ring: true).distinct.pluck(:token).to_set
     tokens = subscriptions.distinct.pluck(:token)
     return [] if tokens.empty?
+    ring_kind = RING_KINDS.include?(notification.notification_type.to_s)
 
     creds = firebase_credentials
     if creds.blank? && tokens.any? { |token| !expo_token?(token) }
@@ -33,7 +37,7 @@ class PushNotificationService
         if expo_token?(token)
           send_expo_push(token, notification, data_payload)
         elsif creds.present?
-          send_fcm_v1_push(token, notification, data_payload, creds)
+          send_fcm_v1_push(token, notification, data_payload, creds, ring: ring_kind && ring_capable.include?(token))
         end
 
       case result
@@ -125,17 +129,25 @@ class PushNotificationService
     base.merge(flat_string_data(payload.except(*INTERNAL_PAYLOAD_KEYS)))
   end
 
-  def send_fcm_v1_push(device_token, notification, data_payload, creds, refreshed: false)
-    access_token = fetch_oauth_access_token(creds)
-    return :retry if access_token.blank?
+  def fcm_message(device_token, notification, data_payload, ring)
+    title = notification.title.to_s.truncate(120)
+    body = notification.body.to_s.truncate(240)
 
-    message = {
+    if ring
+      order_type = notification.notification_type.to_s == "b2b_order_broadcast" ? "b2b" : "retail"
+      return {
+        message: {
+          token: device_token,
+          data: data_payload.merge("title" => title, "body" => body, "ring" => "1", "order_type" => order_type),
+          android: { priority: "high", ttl: RING_TTL }
+        }
+      }
+    end
+
+    {
       message: {
         token: device_token,
-        notification: {
-          title: notification.title.to_s.truncate(120),
-          body: notification.body.to_s.truncate(240)
-        },
+        notification: { title: title, body: body },
         data: data_payload,
         android: {
           priority: "high",
@@ -154,6 +166,13 @@ class PushNotificationService
         }
       }
     }
+  end
+
+  def send_fcm_v1_push(device_token, notification, data_payload, creds, ring: false, refreshed: false)
+    access_token = fetch_oauth_access_token(creds)
+    return :retry if access_token.blank?
+
+    message = fcm_message(device_token, notification, data_payload, ring)
 
     response = HTTParty.post(
       "https://fcm.googleapis.com/v1/projects/#{creds['project_id']}/messages:send",
@@ -167,7 +186,7 @@ class PushNotificationService
 
     if response.code == 401 && !refreshed
       Rails.cache.delete(oauth_cache_key(creds)) rescue nil
-      return send_fcm_v1_push(device_token, notification, data_payload, creds, refreshed: true)
+      return send_fcm_v1_push(device_token, notification, data_payload, creds, ring: ring, refreshed: true)
     end
 
     classify_fcm_response(response, notification, device_token)
