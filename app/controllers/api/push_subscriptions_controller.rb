@@ -6,12 +6,17 @@ module Api
 
       return render json: { error: "token is required" }, status: :unprocessable_entity if token.blank?
 
-      sub = PushSubscription.find_or_initialize_by(token: token)
+      sub = PushSubscription.find_or_initialize_by(token: token, subscriber_type: current_user.class.name)
       sub.subscriber = current_user
       sub.platform = platform
       sub.supports_ring = ActiveModel::Type::Boolean.new.cast(params[:supports_ring]) == true
       sub.save!
 
+      render json: { message: "Registered" }, status: :ok
+    rescue ActiveRecord::RecordNotUnique
+      sub = PushSubscription.find_by(token: token)
+      sub.update!(subscriber: current_user, platform: platform,
+                  supports_ring: ActiveModel::Type::Boolean.new.cast(params[:supports_ring]) == true)
       render json: { message: "Registered" }, status: :ok
     rescue ActiveRecord::RecordInvalid => e
       render json: { error: e.record.errors.full_messages }, status: :unprocessable_entity

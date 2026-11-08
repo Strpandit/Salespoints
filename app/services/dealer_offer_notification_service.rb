@@ -31,6 +31,42 @@ class DealerOfferNotificationService
       Rails.logger.error("[DealerOfferNotificationService] notify_expiry_reminder! failed: #{e.message}")
     end
 
+    def notify_approved!(offer)
+      dealer = offer.dealer
+      return unless dealer
+
+      NotificationService.deliver(
+        recipient: dealer,
+        notifiable: offer,
+        kind: "dealer_offer_approved",
+        title: "Offer approved",
+        message: "Your Offer Mart offer \"#{offer.display_title}\" has been approved and is now live.",
+        payload: offer_payload(offer).merge(screen: "DealerOffers", role: "dealer"),
+        delivery_channels: { push: true, in_app: true, email: false }
+      )
+      DealerOfferLiveNotificationJob.perform_later(offer.id)
+    rescue StandardError => e
+      Rails.logger.error("[DealerOfferNotificationService] notify_approved! failed: #{e.message}")
+    end
+
+    def notify_rejected!(offer)
+      dealer = offer.dealer
+      return unless dealer
+
+      reason = offer.rejection_reason.to_s.strip
+      NotificationService.deliver(
+        recipient: dealer,
+        notifiable: offer,
+        kind: "dealer_offer_rejected",
+        title: "Offer not approved",
+        message: ["Your Offer Mart offer \"#{offer.display_title}\" was not approved.", (reason.present? ? "Reason: #{reason}" : nil)].compact.join(" "),
+        payload: offer_payload(offer).merge(screen: "DealerOffers", role: "dealer"),
+        delivery_channels: { push: true, in_app: true, email: false }
+      )
+    rescue StandardError => e
+      Rails.logger.error("[DealerOfferNotificationService] notify_rejected! failed: #{e.message}")
+    end
+
     private
 
     def offer_payload(offer)

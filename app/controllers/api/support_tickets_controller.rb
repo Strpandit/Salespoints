@@ -122,7 +122,7 @@ module Api
 
       if message.persisted?
         SupportMailer.ticket_message_added(@ticket, message).deliver_later
-        create_ticket_notification(@ticket, "New message from #{message.sender_name}")
+        create_ticket_notification(@ticket, "New message from #{message.sender_name}") unless sender_type == @ticket.user_type
         @ticket.update(status: "in_progress") if sender_type == "admin" && @ticket.status == "open"
         @ticket.update(status: "waiting_customer") if sender_type == "admin"
         render json: { success: true, data: message_payload(message) }

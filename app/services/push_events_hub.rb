@@ -1,7 +1,13 @@
-# frozen_string_literal: true
-
 class PushEventsHub
   class << self
+    def order_label(order)
+      order.try(:order_number).presence || order.try(:reference_number).presence || order.id.to_s
+    end
+
+    def order_kind(order)
+      order.is_a?(B2bOrder) ? "b2b" : "retail"
+    end
+
     # ──────────────────────────────────────────────────────────────────────────
     # SECTION A: CUSTOMER NOTIFICATIONS & REMINDERS
     # ──────────────────────────────────────────────────────────────────────────
@@ -12,8 +18,8 @@ class PushEventsHub
       NotificationService.deliver(
         recipient: order.buyer,
         kind: "b2c_order_placed",
-        title: "Order Placed! 🎉",
-        message: "Aapka Order ##{order.order_number} place ho gaya hai. Nearby dealer assign ho raha hai.",
+        title: "Order placed",
+        message: "Your order ##{order.order_number} has been placed. We are finding a nearby seller to confirm it.",
         notifiable: order,
         payload: { order_id: order.id, screen: "CustomerOrderDetails", role: "customer" }
       )
@@ -26,8 +32,8 @@ class PushEventsHub
       NotificationService.deliver(
         recipient: order.buyer,
         kind: "payment_success",
-        title: "Payment Successful ✅",
-        message: "₹#{amt} ka payment successfully confirm ho gaya hai Order ##{order.order_number} ke liye.",
+        title: "Payment successful",
+        message: "We have received your payment of ₹#{amt} for order ##{order.order_number}.",
         notifiable: order,
         payload: { order_id: order.id, screen: "CustomerOrderDetails", role: "customer" }
       )
@@ -54,8 +60,8 @@ class PushEventsHub
       NotificationService.deliver(
         recipient: order.buyer,
         kind: "order_dispatched",
-        title: "Out for Delivery 🚚",
-        message: "Delivery partner Order ##{order.order_number} lekar aapke address ke liye nikal chuka hai.",
+        title: "Your order has been shipped",
+        message: "Order ##{order.order_number} is on its way to your delivery address.",
         notifiable: order,
         payload: { order_id: order.id, screen: "CustomerOrderDetails", role: "customer" }
       )
@@ -67,8 +73,8 @@ class PushEventsHub
       NotificationService.deliver(
         recipient: order.buyer,
         kind: "order_delivered",
-        title: "Delivered Successfully 🎁",
-        message: "Aapka Order ##{order.order_number} deliver ho chuka hai. Thank you for shopping with Salespoints!",
+        title: "Order delivered",
+        message: "Your order ##{order.order_number} has been delivered. Thank you for shopping with Salespoints!",
         notifiable: order,
         payload: { order_id: order.id, screen: "CustomerOrderDetails", role: "customer" }
       )
@@ -77,13 +83,13 @@ class PushEventsHub
     # 7. Order Cancelled / Expired
     def customer_order_cancelled(order, reason = nil)
       return unless order&.buyer
-      msg = "Order ##{order.order_number} cancel ho gaya hai."
+      msg = "Your order ##{order.order_number} has been cancelled."
       msg += " Reason: #{reason}." if reason.present?
-      msg += " Deducted amount 3-5 days me refund hoga."
+      msg += " Any amount paid will be refunded to your original payment method within 3-5 working days." if order.try(:payment_status).to_s.in?(%w[paid partially_refunded refunded])
       NotificationService.deliver(
         recipient: order.buyer,
         kind: "order_cancelled",
-        title: "Order Cancelled ⚠️",
+        title: "Order cancelled",
         message: msg,
         notifiable: order,
         payload: { order_id: order.id, screen: "CustomerOrderDetails", role: "customer" }
@@ -100,6 +106,18 @@ class PushEventsHub
         message: "#{deal.product_name} par Flat #{deal.discount_percent}% OFF start ho chuka hai. Limited stock!",
         notifiable: deal,
         payload: { deal_id: deal.id, screen: "OfferMartDetails" }
+      )
+    end
+
+    def customer_offermart_offer_live(account, offer)
+      return unless account && offer
+      NotificationService.deliver(
+        recipient: account,
+        kind: "offer_mart_deal_active",
+        title: "New Offer Mart deal near you",
+        message: "#{offer.display_title} is now available in your area at ₹#{offer.offer_price.to_f.round(2).to_s.sub(/.0z/, '')}. Limited stock.",
+        notifiable: offer,
+        payload: { deal_id: offer.id, screen: "OfferMartDetails", role: "customer" }
       )
     end
 
@@ -275,12 +293,13 @@ class PushEventsHub
     # 24. Security Alert (New Device Login)
     def customer_security_alert(account, ip_address = nil)
       return unless account
-      msg = "Naye device se aapke account me login detect hua hai."
+      msg = "The password of your Salespoints account was changed."
       msg += " IP: #{ip_address}." if ip_address.present?
+      msg += " If this was not you, please reset your password immediately and contact support."
       NotificationService.deliver(
         recipient: account,
         kind: "customer_security_alert",
-        title: "Security Alert 🔒",
+        title: "Security alert",
         message: msg,
         payload: { screen: "Security", priority: "high" }
       )
@@ -292,8 +311,8 @@ class PushEventsHub
       NotificationService.deliver(
         recipient: account,
         kind: "customer_profile_updated",
-        title: "Profile Updated 📝",
-        message: "Aapka account profile details successfully update ho gaya hai.",
+        title: "Profile updated",
+        message: "Your account profile details were updated successfully.",
         payload: { screen: "PersonalInfo" }
       )
     end
@@ -329,15 +348,15 @@ class PushEventsHub
     end
 
     # 28. Broadcast Order Expiring in 2 Mins
-    def dealer_order_expiring_soon(dealer, order)
+    def dealer_order_expiring_soon(dealer, order, minutes_left = 2)
       return unless dealer && order
       NotificationService.deliver(
         recipient: dealer,
         kind: "order_expiring_soon",
-        title: "Order Expiring Soon! ⏰",
-        message: "Order ##{order.order_number} sirf 2 minute me expire ho jayega. Claim now!",
+        title: "Order request expiring soon",
+        message: "Order ##{order_label(order)} will expire in #{minutes_left} minute#{'s' unless minutes_left == 1}. Accept it now before it is closed.",
         notifiable: order,
-        payload: { order_id: order.id, screen: "DealerOrders", role: "dealer", priority: "high" }
+        payload: { order_id: order.id, order_number: order_label(order), order_type: order_kind(order), screen: "DealerOrders", role: "dealer", priority: "high" }
       )
     end
 
@@ -399,10 +418,10 @@ class PushEventsHub
       NotificationService.deliver(
         recipient: dealer,
         kind: "order_auto_expired",
-        title: "Order Missed ⚠️",
-        message: "Broadcast Order ##{order.order_number} timeout hone ki wajah se close ho gaya.",
+        title: "Order request closed",
+        message: "Order ##{order_label(order)} was not accepted in time and has been closed.",
         notifiable: order,
-        payload: { screen: "DealerOrders", role: "dealer" }
+        payload: { order_id: order.id, order_number: order_label(order), order_type: order_kind(order), screen: "DealerOrders", role: "dealer" }
       )
     end
 
@@ -570,8 +589,8 @@ class PushEventsHub
       NotificationService.deliver(
         recipient: dealer,
         kind: "out_of_stock_alert",
-        title: "Product Out of Stock 🔴",
-        message: "#{product.name} out of stock ho gaya hai. Listings temporary pause ho gayi hain.",
+        title: "Product out of stock",
+        message: "#{product.name} is now out of stock. Please restock to keep receiving orders for it.",
         notifiable: product,
         payload: { product_id: product.id, screen: "DealerProducts" }
       )
@@ -583,8 +602,8 @@ class PushEventsHub
       NotificationService.deliver(
         recipient: dealer,
         kind: "custom_product_approved",
-        title: "Custom Product Live! 🚀",
-        message: "Aapka product '#{product.name}' admin dwara approve ho gaya hai.",
+        title: "Product approved",
+        message: "Your product '#{product.name}' has been approved and is now live.",
         notifiable: product,
         payload: { product_id: product.id, screen: "DealerProducts" }
       )
@@ -593,12 +612,12 @@ class PushEventsHub
     # 48. Custom Product Rejected
     def dealer_custom_product_rejected(dealer, product, reason = nil)
       return unless dealer && product
-      msg = "Product '#{product.name}' review guidelines meet nahi kar paya."
+      msg = "Your product '#{product.name}' did not meet our review guidelines."
       msg += " Reason: #{reason}" if reason.present?
       NotificationService.deliver(
         recipient: dealer,
         kind: "custom_product_rejected",
-        title: "Product Review Update ℹ️",
+        title: "Product not approved",
         message: msg,
         notifiable: product,
         payload: { product_id: product.id, screen: "DealerProducts" }
@@ -606,15 +625,30 @@ class PushEventsHub
     end
 
     # 49. Morning Business Summary (9:00 AM)
-    def dealer_daily_morning_briefing(dealer, pending_count)
+    def dealer_daily_morning_briefing(dealer, summary)
       return unless dealer
+      summary = { to_dispatch: summary.to_i } unless summary.is_a?(Hash)
+
+      lines = []
+      lines << "#{summary[:to_dispatch]} order#{'s' unless summary[:to_dispatch] == 1} to dispatch" if summary[:to_dispatch].to_i.positive?
+      lines << "#{summary[:new_requests]} new request#{'s' unless summary[:new_requests] == 1} waiting" if summary[:new_requests].to_i.positive?
+      if summary[:listings].to_i.positive?
+        stock = "#{summary[:listings]} live listing#{'s' unless summary[:listings] == 1}"
+        flags = []
+        flags << "#{summary[:out_of_stock]} out of stock" if summary[:out_of_stock].to_i.positive?
+        flags << "#{summary[:low_stock]} low on stock" if summary[:low_stock].to_i.positive?
+        stock += " (#{flags.join(', ')})" if flags.any?
+        lines << stock
+      end
+
+      needs_orders = summary[:to_dispatch].to_i.positive? || summary[:new_requests].to_i.positive?
       NotificationService.deliver(
         recipient: dealer,
         kind: "daily_morning_briefing",
-        title: "Suprabhat! ☀️ Aaj ka Business Snapshot",
-        message: "Aapke paas #{pending_count} active orders fulfill karne ke liye ready hain.",
+        title: "Good morning! Your business snapshot",
+        message: lines.join(" · "),
         notifiable: dealer,
-        payload: { screen: "DealerOrders", role: "dealer" }
+        payload: { screen: needs_orders ? "DealerOrders" : "DealerProducts", role: "dealer" }.merge(summary.transform_keys(&:to_s))
       )
     end
 
@@ -647,16 +681,28 @@ class PushEventsHub
     # 52. Dealer Security Alert (New Login)
     def dealer_security_alert(dealer, ip_address = nil)
       return unless dealer
-      msg = "Naye device se dealer portal login detect hua hai."
+      msg = "The password of your Salespoints dealer account was changed."
       msg += " IP: #{ip_address}." if ip_address.present?
+      msg += " If this was not you, please reset your password immediately and contact support."
       NotificationService.deliver(
         recipient: dealer,
         kind: "dealer_security_alert",
-        title: "Security Alert 🔒",
+        title: "Security alert",
         message: msg,
         notifiable: dealer,
         payload: { screen: "DealerProfile", priority: "high" }
       )
+    end
+  end
+
+  HELPERS = %i[order_label order_kind].freeze
+  (singleton_class.public_instance_methods(false) - HELPERS).each do |event|
+    original = singleton_class.instance_method(event)
+    define_singleton_method(event) do |*args, **kwargs, &block|
+      original.bind(self).call(*args, **kwargs, &block)
+    rescue StandardError => e
+      Rails.logger.error("[PushEventsHub] #{event} failed: #{e.class}: #{e.message}")
+      nil
     end
   end
 end

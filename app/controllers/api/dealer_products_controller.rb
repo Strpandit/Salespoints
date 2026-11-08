@@ -375,6 +375,7 @@ module Api
         @dealer_product.product.update!(is_active: true) unless @dealer_product.product.is_active?
         @dealer_product.product_variant&.update!(is_active: true) unless @dealer_product.product_variant&.is_active?
         notify_admins_about_product_action(@dealer_product.product.name, @dealer_product.dealer.full_name, "approved")
+        PushEventsHub.dealer_custom_product_approved(@dealer_product.dealer, @dealer_product.product)
         render json: serialize_resource(@dealer_product, DealerProductSerializer, base_url: request.base_url).merge(message: "Dealer product approved")
       else
         render json: { error: @dealer_product.errors.full_messages }, status: :unprocessable_entity
@@ -394,6 +395,7 @@ module Api
 
       if @dealer_product.update(approve_status: :rejected, is_active: false)
         notify_admins_about_product_action(@dealer_product.product.name, @dealer_product.dealer.full_name, "rejected", rejection_reason)
+        PushEventsHub.dealer_custom_product_rejected(@dealer_product.dealer, @dealer_product.product, rejection_reason)
         render json: serialize_resource(@dealer_product, DealerProductSerializer, base_url: request.base_url).merge(message: "Dealer product rejected")
       else
         render json: { error: @dealer_product.errors.full_messages }, status: :unprocessable_entity

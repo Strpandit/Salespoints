@@ -22,10 +22,18 @@ class B2bOrderCleanupJob < ApplicationJob
 
       DealerBroadcastTracker.for_order(order.id).pending.update_all(status: "expired")
 
+      missed_dealers = Dealer.where(id: order.b2b_order_offers.open_state.select(:dealer_id)).to_a
+
       order.b2b_order_offers.open_state.update_all(
         status: "expired",
         responded_at: Time.current
       )
+
+      missed_dealers.each do |dealer|
+        PushEventsHub.dealer_order_auto_expired(dealer, order)
+      rescue StandardError => e
+        Rails.logger.warn "Could not tell dealer #{dealer.id} that order #{order.id} closed: #{e.message}"
+      end
 
       send_expiry_notification(order)
       create_expiry_notification(order)

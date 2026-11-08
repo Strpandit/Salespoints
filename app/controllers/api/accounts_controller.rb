@@ -85,6 +85,7 @@ module Api
       password_changed = attrs[:password].present?
       if @account.update(attrs)
         @account.revoke_tokens! if password_changed && @password_was_set
+        notify_account_update(password_changed && @password_was_set)
         render json: { account: serialize_data(@account, AccountSerializer), message: "Account updated successfully" }, status: :ok
       else
         render json: { errors: @account.errors.full_messages }, status: :unprocessable_entity
@@ -142,7 +143,7 @@ module Api
       return unauthorized("Customer account required") unless current_account
 
       unless current_account.authenticate(params[:current_password])
-        return unauthorized("Incorrect current password")
+        return render json: { error: "Incorrect current password" }, status: :unauthorized
       end
 
       policy_error = password_policy_error(params[:new_password], params[:confirm_password])
@@ -153,6 +154,7 @@ module Api
         password_confirmation: params[:new_password].to_s
       )
         current_account.revoke_tokens!
+        PushEventsHub.customer_security_alert(current_account, request.remote_ip)
         render json: { status: 200, message: "Password changed successfully", token: JsonWebToken.issue_for(current_account) }, status: :ok
       else
         render json: { error: current_account.errors.full_messages }, status: :unprocessable_entity
@@ -160,6 +162,18 @@ module Api
     end
 
     private
+
+    def notify_account_update(password_changed)
+      return unless current_account && current_account.id == @account.id
+
+      if password_changed
+        PushEventsHub.customer_security_alert(@account, request.remote_ip)
+      elsif (@account.saved_changes.keys - %w[updated_at password_digest token_version otp_pin otp_sent_at]).any?
+        PushEventsHub.customer_profile_updated(@account)
+      end
+    rescue StandardError => e
+      Rails.logger.warn("[AccountsController] account update notification failed: #{e.class}: #{e.message}")
+    end
 
     def guard_password_change(attrs)
       @password_was_set = false

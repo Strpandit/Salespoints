@@ -178,6 +178,7 @@ module Api
         reviewed_at: Time.current,
         reviewed_by_admin: current_admin
       )
+      DealerOfferNotificationService.notify_approved!(@offer)
       render json: { data: offer_payload(@offer), message: "Offer approved" }, status: :ok
     end
 
@@ -194,6 +195,7 @@ module Api
         reviewed_at: Time.current,
         reviewed_by_admin: current_admin
       )
+      DealerOfferNotificationService.notify_rejected!(@offer)
       render json: { data: offer_payload(@offer), message: "Offer rejected" }, status: :ok
     end
 

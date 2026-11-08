@@ -10,7 +10,12 @@ class PushNotificationService
   RETRYABLE_STATUS_CODES = [429, 500, 502, 503, 504].freeze
   TRANSIENT_ERRORS = [Net::OpenTimeout, Net::ReadTimeout, Errno::ECONNRESET, Errno::ECONNREFUSED, SocketError, OpenSSL::SSL::SSLError].freeze
   INTERNAL_PAYLOAD_KEYS = %w[delivery_channels visible_in_app notifiable_type notifiable_id].freeze
-  RING_KINDS = %w[b2c_order_broadcast b2b_order_broadcast].freeze
+  ORDER_RING_KINDS = %w[b2c_order_request b2b_order_request b2c_order_broadcast b2b_order_broadcast].freeze
+  INFO_RING_KINDS = %w[new_wholesaler_post offer_mart_order_placed].freeze
+  RING_KINDS = (ORDER_RING_KINDS + INFO_RING_KINDS).freeze
+  RING_DROPPED_KEYS = %w[items item_ids params].freeze
+  FCM_DATA_BUDGET = 3200
+  ESSENTIAL_DATA_KEYS = %w[notification_type notification_id screen role order_id params wholesaler_post_id product_id deal_id].freeze
   RING_TTL = "180s".freeze
 
   def deliver(notification, tokens: nil)
@@ -38,6 +43,8 @@ class PushNotificationService
           send_expo_push(token, notification, data_payload)
         elsif creds.present?
           send_fcm_v1_push(token, notification, data_payload, creds, ring: ring_kind && ring_capable.include?(token))
+        else
+          :retry
         end
 
       case result
@@ -75,7 +82,7 @@ class PushNotificationService
 
     if notifiable.is_a?(Order) || payload["order_id"].present? || type.include?("order")
       if notification.receiver_type == "Dealer"
-        type.include?("broadcast") ? "DealerOrders" : "DealerOrderDetails"
+        "DealerOrders"
       else
         "CustomerOrderDetails"
       end
@@ -109,7 +116,7 @@ class PushNotificationService
       "role" => (notification.receiver_type == "Dealer" ? "dealer" : "customer")
     }
 
-    if notifiable.is_a?(Order)
+    if order_notifiable?(notifiable)
       base["order_id"] = notifiable.id.to_s
       base["params"] = { orderId: notifiable.id, role: base["role"] }.to_json
     elsif payload["order_id"].present?
@@ -126,7 +133,63 @@ class PushNotificationService
       base["params"] = { postId: payload["wholesaler_post_id"] }.to_json
     end
 
-    base.merge(flat_string_data(payload.except(*INTERNAL_PAYLOAD_KEYS)))
+    data = base.merge(flat_string_data(payload.except(*INTERNAL_PAYLOAD_KEYS)))
+
+    if order_notifiable?(notifiable)
+      data["order_number"] = payload["order_id"].to_s if payload["order_id"].present? && payload["order_id"].to_s != notifiable.id.to_s
+      data["order_id"] = notifiable.id.to_s
+      data["order_type"] = notifiable.is_a?(B2bOrder) ? "b2b" : "retail"
+      data["params"] = { orderId: notifiable.id, role: base["role"], orderType: data["order_type"] }.to_json
+    end
+
+    fit_fcm_data_limit(data)
+  end
+
+  def order_notifiable?(notifiable)
+    notifiable.is_a?(Order) || notifiable.is_a?(B2bOrder)
+  end
+
+  def fit_fcm_data_limit(data)
+    return data if data.to_json.bytesize <= FCM_DATA_BUDGET
+
+    data = data.dup
+    data.keys.sort_by { |key| -data[key].to_s.bytesize }.each do |key|
+      break if data.to_json.bytesize <= FCM_DATA_BUDGET
+      next if ESSENTIAL_DATA_KEYS.include?(key)
+
+      data.delete(key)
+    end
+    data
+  end
+
+  def ring_data(notification, data_payload)
+    type = notification.notification_type.to_s
+    notifiable = notification.notifiable
+    payload = notification.payload || {}
+    data = data_payload.except(*RING_DROPPED_KEYS)
+    data["order_number"] = payload["order_id"].to_s if payload["order_id"].present?
+
+    if ORDER_RING_KINDS.include?(type)
+      data["alert_kind"] = "order"
+      data["order_type"] = type.start_with?("b2b") ? "b2b" : "retail"
+      data["order_id"] = notifiable.id.to_s if notifiable.respond_to?(:id)
+      data["screen"] = "DealerOrders"
+      data["params"] = { orderId: notifiable.id, role: "dealer" }.to_json if notifiable.respond_to?(:id)
+    elsif type == "new_wholesaler_post"
+      post_id = (payload["wholesaler_post_id"] || notifiable&.id).to_s
+      data["alert_kind"] = "wholesaler"
+      data["screen"] = "DealerWholesalerFeed"
+      data["params"] = { postId: post_id }.to_json
+    else
+      data["alert_kind"] = "offer_mart"
+      data["order_type"] = "retail"
+      data["screen"] = "DealerOrders"
+      if notifiable.respond_to?(:id)
+        data["order_id"] = notifiable.id.to_s
+        data["params"] = { orderId: notifiable.id, role: "dealer" }.to_json
+      end
+    end
+    data
   end
 
   def fcm_message(device_token, notification, data_payload, ring)
@@ -134,11 +197,10 @@ class PushNotificationService
     body = notification.body.to_s.truncate(240)
 
     if ring
-      order_type = notification.notification_type.to_s == "b2b_order_broadcast" ? "b2b" : "retail"
       return {
         message: {
           token: device_token,
-          data: data_payload.merge("title" => title, "body" => body, "ring" => "1", "order_type" => order_type),
+          data: ring_data(notification, data_payload).merge("title" => title, "body" => body, "ring" => "1"),
           android: { priority: "high", ttl: RING_TTL }
         }
       }
@@ -206,7 +268,8 @@ class PushNotificationService
     message = error["message"].to_s
     error_codes = Array(error["details"]).map { |detail| detail["errorCode"] if detail.is_a?(Hash) }.compact
 
-    if error_codes.include?("UNREGISTERED") || (code == 400 && message.include?("registration token"))
+    if error_codes.include?("UNREGISTERED") || error_codes.include?("SENDER_ID_MISMATCH") ||
+       (code == 400 && message.include?("registration token")) || code == 404
       Rails.logger.info("[PushNotificationService] Removing dead token ...#{device_token.last(6)} (notification=#{notification.id})")
       return :stale
     end
@@ -321,10 +384,17 @@ class PushNotificationService
     nil
   end
 
+  def reserved_data_key?(key)
+    key.empty? || %w[from notification message_type].include?(key) || key.start_with?("google", "gcm")
+  end
+
   def flat_string_data(payload)
     out = {}
     (payload || {}).each do |k, v|
-      out[k.to_s] = v.is_a?(Hash) || v.is_a?(Array) ? v.to_json : v.to_s
+      key = k.to_s
+      next if reserved_data_key?(key)
+
+      out[key] = v.is_a?(Hash) || v.is_a?(Array) ? v.to_json : v.to_s
     end
     out
   end

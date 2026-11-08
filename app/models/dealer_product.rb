@@ -19,6 +19,7 @@ class DealerProduct < ApplicationRecord
   validate :at_least_one_sales_channel_enabled
 
   before_save :sync_total_stock_from_colors
+  after_commit :notify_out_of_stock, on: :update
 
   def color_stock_for(color_id)
     return stock_quantity if color_stocks.blank?
@@ -134,6 +135,19 @@ class DealerProduct < ApplicationRecord
   end
 
   private
+
+  def notify_out_of_stock
+    before, after = saved_change_to_stock_quantity
+    return unless before.to_i.positive? && after.to_i <= 0
+    return unless approved? && is_active? && dealer&.active? && product
+
+    return if Notification.where(receiver: dealer, notifiable: product, notification_type: "out_of_stock_alert")
+                          .where("created_at >= ?", 6.hours.ago).exists?
+
+    PushEventsHub.dealer_out_of_stock_alert(dealer, product)
+  rescue StandardError => e
+    Rails.logger.warn("[DealerProduct] out-of-stock notification failed for ##{id}: #{e.class}: #{e.message}")
+  end
 
   def sync_total_stock_from_colors
     if color_stocks.present? && color_stocks.is_a?(Hash) && color_stocks.any?

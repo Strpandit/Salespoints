@@ -32,6 +32,8 @@ class ExpireB2cOrderJob < ApplicationJob
     end
     return unless expired
 
+    missed_dealers = Dealer.where(id: order.order_offers.open_state.select(:dealer_id)).to_a
+
     order.order_offers.open_state.update_all(
       status: "expired",
       responded_at: Time.current,
@@ -41,6 +43,12 @@ class ExpireB2cOrderJob < ApplicationJob
     order.order_broadcast_trackers.pending.update_all(
       status: "expired"
     )
+
+    missed_dealers.each do |dealer|
+      PushEventsHub.dealer_order_auto_expired(dealer, order)
+    rescue StandardError => e
+      Rails.logger.warn("[ExpireB2cOrderJob] could not tell dealer ##{dealer.id} about order ##{order.id}: #{e.message}")
+    end
 
     NotificationService.deliver(
       recipient: order.buyer,

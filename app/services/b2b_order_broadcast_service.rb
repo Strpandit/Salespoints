@@ -250,8 +250,31 @@ class B2bOrderBroadcastService
         items: serialized_offer_items(matched_items),
         broadcast_radius: @current_radius,
         rebroadcast: false
-      }
+      }.merge(request_alert_details(dealer, product_name, total_items))
     )
+  end
+
+  def request_alert_details(dealer, product_name, total_items)
+    full_address, from_location = (@alert_location ||= resolve_b2b_address_and_location)
+    seller_location = dealer&.dealer_location
+    distance =
+      if from_location.present? && seller_location&.latitude.present? && seller_location&.longitude.present?
+        DealerLocation.distance_km(
+          from_location[:latitude].to_f, from_location[:longitude].to_f,
+          seller_location.latitude.to_f, seller_location.longitude.to_f
+        ).round(1)
+      end
+
+    {
+      item_name: product_name,
+      quantity: total_items,
+      pincode: full_address.to_s[/\b\d{6}\b/],
+      distance_km: distance,
+      delivery_area: mask_approx_address(full_address)
+    }.compact
+  rescue StandardError => e
+    Rails.logger.warn("[B2bOrderBroadcastService] alert details failed: #{e.message}")
+    {}
   end
 
   def notify_admin_new_b2b_request(dealer, matched_items)

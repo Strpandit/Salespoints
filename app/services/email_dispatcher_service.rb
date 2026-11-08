@@ -2,27 +2,32 @@ class EmailDispatcherService
   # B2C / Wholesaler (Retail) Emails
   def self.retail_order_placed(order)
     RetailOrderMailer.admin_order_placed(order.id).deliver_later
+    OrderPushNotifier.retail_placed(order)
   end
   
   def self.retail_order_accepted(order)
     RetailOrderMailer.order_accepted(order.id, "buyer").deliver_later
     RetailOrderMailer.order_accepted(order.id, "seller").deliver_later
     RetailOrderMailer.order_accepted(order.id, "admin").deliver_later
+    OrderPushNotifier.retail_accepted(order)
   end
   
   def self.retail_order_shipped(order)
     RetailOrderMailer.order_shipped(order.id).deliver_later
+    OrderPushNotifier.retail_shipped(order)
   end
   
   def self.retail_order_delivered(order)
     RetailOrderMailer.order_delivered(order.id, "buyer").deliver_later
     RetailOrderMailer.order_delivered(order.id, "seller").deliver_later
     RetailOrderMailer.order_delivered(order.id, "admin").deliver_later
+    OrderPushNotifier.retail_delivered(order)
   end
   
   def self.retail_order_terminated(order, reason)
     RetailOrderMailer.order_terminated(order.id, "buyer", reason).deliver_later
     RetailOrderMailer.order_terminated(order.id, "admin", reason).deliver_later
+    OrderPushNotifier.retail_terminated(order, reason)
   end
   
   # B2B Emails
@@ -44,16 +49,19 @@ class EmailDispatcherService
   
   def self.b2b_order_shipped(order)
     B2bOrderMailer.order_shipped(order.id).deliver_later
+    OrderPushNotifier.b2b_shipped(order)
   end
   
   def self.b2b_order_delivered(order)
     B2bOrderMailer.order_delivered(order.id, "buyer").deliver_later
     B2bOrderMailer.order_delivered(order.id, "seller").deliver_later
     B2bOrderMailer.order_delivered(order.id, "admin").deliver_later
+    OrderPushNotifier.b2b_delivered(order)
   end
   
   def self.b2b_order_terminated(order, reason)
     B2bOrderMailer.order_terminated(order.id, "buyer", reason).deliver_later
     B2bOrderMailer.order_terminated(order.id, "admin", reason).deliver_later
+    OrderPushNotifier.b2b_terminated(order, reason)
   end
 end

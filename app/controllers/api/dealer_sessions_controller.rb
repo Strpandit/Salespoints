@@ -6,7 +6,6 @@ module Api
     RESET_FLOW_TTL = 10.minutes
     FORGOT_COOLDOWN = 60.seconds
 
-    # Per-IP ceilings: password guessing, OTP e-mail flooding and reset-OTP guessing from one source.
     rate_limit to: 10, within: 5.minutes, only: :login, name: "dealer-login", by: -> { client_ip },
                with: -> { render json: { error: "Too many login attempts. Please try again later." }, status: :too_many_requests }
     rate_limit to: 5, within: 10.minutes, only: :forgot_password, name: "dealer-forgot", by: -> { client_ip },
@@ -16,7 +15,6 @@ module Api
 
     def login
       dealer = Dealer.active.find_by(email: params[:email]&.downcase) if params[:email].present?
-      # A blank phone must never match: find_by(phone: nil) would pick a dealer with no phone on file.
       dealer ||= Dealer.find_by(phone: params[:phone].to_s.gsub(/\D/, '')) if params[:phone].to_s.gsub(/\D/, '').present?
 
       return unauthorized("Invalid credentials") unless dealer&.authenticate(params[:password]) && dealer.active?
@@ -47,8 +45,8 @@ module Api
         password_confirmation: params[:new_password].to_s
       )
         ActivityLogger.log_auth(actor: dealer, action: "change_password", request: request)
-        # Sign out every other session; hand back a fresh token so this device stays signed in.
         dealer.revoke_tokens!
+        PushEventsHub.dealer_security_alert(dealer, request.remote_ip)
         render json:{message:"Password changed", token: JsonWebToken.issue_for(dealer)}, status: :ok
       else
         render json:{error: dealer.errors.full_messages}, status: :unprocessable_entity
@@ -57,14 +55,10 @@ module Api
 
     def forgot_password
       dealer = Dealer.active.find_by(email: params[:email]&.downcase) || Dealer.active.find_by(phone: params[:phone]&.gsub(/\D/, ''))
-      # Same answer whether or not the dealer exists, so this cannot be used to discover accounts.
-      # The placeholder id never matches a real dealer, so OTP verification just fails for it.
       unless dealer&.email.present?
         return render json: { message: "OTP sent successfully", id: 900_000_000 + SecureRandom.random_number(99_999_999) }, status: :ok
       end
 
-      # Inside the cooldown keep the OTP already sent (a flood of requests must not keep
-      # invalidating the owner's code or spam their inbox).
       if dealer.otp_sent_at&.after?(FORGOT_COOLDOWN.ago)
         return render json: { message: "OTP sent successfully", id: dealer.id }, status: :ok
       end

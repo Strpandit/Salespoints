@@ -43,6 +43,11 @@ production:
     queue: cleanup
     schedule: every 10 minutes
 
+  order_expiry_warning:
+    class: OrderExpiryWarningJob
+    queue: default
+    schedule: every 5 minutes
+
   smart_engagement_reminders:
     class: SmartEngagementRemindersJob
     queue: default
