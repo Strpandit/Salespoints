@@ -16,7 +16,7 @@ class PushNotificationService
   RING_DROPPED_KEYS = %w[items item_ids params].freeze
   FCM_DATA_BUDGET = 3200
   ESSENTIAL_DATA_KEYS = %w[notification_type notification_id screen role order_id params wholesaler_post_id product_id deal_id].freeze
-  RING_TTL = "180s".freeze
+  RING_TTL = "600s".freeze
 
   def deliver(notification, tokens: nil)
     channels = notification.delivery_channels
@@ -28,6 +28,8 @@ class PushNotificationService
     tokens = subscriptions.distinct.pluck(:token)
     return [] if tokens.empty?
     ring_kind = RING_KINDS.include?(notification.notification_type.to_s)
+    # A ring can arrive late (queue lag, retry) after the request was already taken or closed.
+    ring_open = !ring_kind || ring_request_open?(notification)
 
     creds = firebase_credentials
     if creds.blank? && tokens.any? { |token| !expo_token?(token) }
@@ -38,6 +40,8 @@ class PushNotificationService
     retryable = []
 
     tokens.each do |token|
+      next if ring_kind && !ring_open && ring_capable.include?(token)
+
       result =
         if expo_token?(token)
           send_expo_push(token, notification, data_payload)
@@ -56,7 +60,74 @@ class PushNotificationService
     retryable
   end
 
+  # Ring requests keep ringing on a dealer's phone until answered. Once the order is taken by someone else (or
+  # closes), tell every other dealer who was alerted to stop: a data-only push the app turns into "cancel that
+  # ringing notification". Best effort: a failure here must never affect the order flow.
+  def self.cancel_ring(order, except_dealer_id: nil)
+    new.cancel_ring(order, except_dealer_id: except_dealer_id)
+  rescue StandardError => e
+    Rails.logger.warn("[PushNotificationService] cancel_ring failed for #{order.class.name}##{order&.id}: #{e.message}")
+    []
+  end
+
+  def cancel_ring(order, except_dealer_id: nil)
+    return [] if order.blank?
+
+    alerts = Notification.where(receiver_type: "Dealer", notifiable_type: order.class.name, notifiable_id: order.id,
+                                notification_type: RING_KINDS)
+    alerts = alerts.where.not(receiver_id: except_dealer_id) if except_dealer_id.present?
+    dealer_ids = alerts.distinct.pluck(:receiver_id)
+    return [] if dealer_ids.empty?
+
+    tokens = PushSubscription.where(subscriber_type: "Dealer", subscriber_id: dealer_ids, supports_ring: true).distinct.pluck(:token)
+    tokens = tokens.reject { |token| expo_token?(token) }
+    return [] if tokens.empty?
+
+    creds = firebase_credentials
+    return [] if creds.blank?
+
+    access_token = fetch_oauth_access_token(creds)
+    return [] if access_token.blank?
+
+    data = {
+      "ring_cancel" => "1",
+      "order_id" => order.id.to_s,
+      "order_type" => order.is_a?(B2bOrder) ? "b2b" : "retail"
+    }
+
+    tokens.each do |token|
+      HTTParty.post(
+        "https://fcm.googleapis.com/v1/projects/#{creds['project_id']}/messages:send",
+        headers: { "Authorization" => "Bearer #{access_token}", "Content-Type" => "application/json; UTF-8" },
+        body: { message: { token: token, data: data, android: { priority: "high", ttl: "120s" } } }.to_json,
+        timeout: 10
+      )
+    rescue StandardError => e
+      Rails.logger.warn("[PushNotificationService] cancel_ring push failed ...#{token.last(6)}: #{e.message}")
+    end
+    tokens
+  end
+
   private
+
+  # Order requests only ring while someone can still answer them. Bulk-deal and Offer Mart alerts are
+  # informational and always ring.
+  def ring_request_open?(notification)
+    return true unless ORDER_RING_KINDS.include?(notification.notification_type.to_s)
+
+    order = notification.notifiable
+    case order
+    when Order
+      order.status.to_s == "pending" && order.seller_dealer_id.blank?
+    when B2bOrder
+      order.request_status.to_s == "pending_request"
+    else
+      true
+    end
+  rescue StandardError => e
+    Rails.logger.warn("[PushNotificationService] ring_request_open? check failed for notification=#{notification.id}: #{e.message}")
+    true
+  end
 
   def expo_token?(token)
     token.start_with?("ExponentPushToken[") || token.start_with?("ExpoPushToken[")

@@ -35,6 +35,7 @@ class B2bOrderCleanupJob < ApplicationJob
         Rails.logger.warn "Could not tell dealer #{dealer.id} that order #{order.id} closed: #{e.message}"
       end
 
+      PushNotificationService.cancel_ring(order)
       send_expiry_notification(order)
       create_expiry_notification(order)
 

@@ -50,6 +50,8 @@ class ExpireB2cOrderJob < ApplicationJob
       Rails.logger.warn("[ExpireB2cOrderJob] could not tell dealer ##{dealer.id} about order ##{order.id}: #{e.message}")
     end
 
+    PushNotificationService.cancel_ring(order)
+
     NotificationService.deliver(
       recipient: order.buyer,
       actor: nil,

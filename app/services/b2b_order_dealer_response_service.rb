@@ -28,6 +28,7 @@ class B2bOrderDealerResponseService
     end
 
     send_accept_notifications(result)
+    PushNotificationService.cancel_ring(result, except_dealer_id: @dealer&.id)
 
     result
   end
@@ -51,7 +52,9 @@ class B2bOrderDealerResponseService
       end
     end
 
+    refund_rejected_order_after_commit!
     send_reject_notifications(result)
+    PushNotificationService.cancel_ring(result) if result.respond_to?(:status) && result.status.to_s == "cancelled"
 
     result
   end
@@ -88,18 +91,32 @@ class B2bOrderDealerResponseService
     tracker = OrderBroadcastTracker.find_by(order: order, dealer: @dealer)
     tracker&.update!(status: "rejected")
 
-    total_offers = order.order_offers.count
-    rejected_offers = order.order_offers.where(status: "rejected").count
+    # The request is dead once no seller can still answer it. Counting only "rejected" offers kept a paid order
+    # waiting for hours whenever another seller's offer had expired or been closed instead of rejected.
+    answerable_offers = order.order_offers
+                             .where(status: "open")
+                             .where("expires_at IS NULL OR expires_at > ?", Time.current)
 
-    if total_offers > 0 && total_offers == rejected_offers
+    if order.seller_dealer_id.blank? && !answerable_offers.exists?
       order.update!(
         status: "cancelled",
         status_note: "All sellers rejected the order"
       )
-      InstantOrderRefundService.process_refund!(order: order, reason: "All sellers rejected the B2C order request")
+      # The refund calls the payment gateway, so it runs after this transaction has committed.
+      @refund_after_commit = order
     end
 
     order
+  end
+
+  def refund_rejected_order_after_commit!
+    order = @refund_after_commit
+    @refund_after_commit = nil
+    return unless order
+
+    InstantOrderRefundService.process_refund!(order: order, reason: "All sellers rejected the B2C order request")
+  rescue StandardError => e
+    Rails.logger.error("[B2bOrderDealerResponseService] refund after rejection failed for Order ##{order&.id}: #{e.message}")
   end
 
   def lock_b2c_request_offer!(order:)
