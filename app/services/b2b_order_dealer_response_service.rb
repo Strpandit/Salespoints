@@ -323,8 +323,6 @@ class B2bOrderDealerResponseService
 
     ensure_order_can_be_accepted!(order: order)
 
-    order.mark_rejected!
-
     offer.update!(
       status: "rejected",
       responded_at: Time.current,
@@ -334,10 +332,11 @@ class B2bOrderDealerResponseService
     tracker = DealerBroadcastTracker.find_by(b2b_order: order, dealer: @dealer)
     tracker&.update!(status: "rejected")
 
-    total_dealers = DealerBroadcastTracker.for_order(order.id).count
-    rejected_count = DealerBroadcastTracker.for_order(order.id).where(status: "rejected").count
-    
-    if total_dealers > 0 && total_dealers == rejected_count
+    trackers = DealerBroadcastTracker.for_order(order.id)
+    nobody_left = trackers.exists? && !trackers.pending.exists?
+    widest_radius_reached = order.current_broadcast_radius.to_f >= B2bOrderBroadcastService::MAX_RADIUS
+
+    if nobody_left && widest_radius_reached
       order.update!(
         request_status: "rejected_request",
         status: "cancelled",
@@ -894,11 +893,15 @@ class B2bOrderDealerResponseService
 
     if order.is_a?(Order)
 
+      return unless order.status.to_s == "cancelled"
+
       notify_buyer_of_rejection(order)
       create_buyer_notification(order, "rejected")
       EmailDispatcherService.retail_order_terminated(order, "rejected")
 
     elsif order.is_a?(B2bOrder)
+
+      return unless order.status.to_s == "cancelled"
 
       notify_buyer_of_rejection(order)
       create_buyer_notification(order, "rejected")

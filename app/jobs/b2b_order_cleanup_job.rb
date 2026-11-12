@@ -1,6 +1,10 @@
 class B2bOrderCleanupJob < ApplicationJob
   queue_as :cleanup
 
+  def self.expire_now(order)
+    new.send(:expire_order, order.reload)
+  end
+
   def perform
     expired_orders = B2bOrder.pending_requests.where("expires_at < ?", Time.current)
     expired_pending_payments = B2bOrder.pending_payments.where("expires_at < ?", Time.current)

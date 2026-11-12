@@ -34,9 +34,20 @@ class B2bOrderBroadcastService
     broadcast!(is_initial: false)
 
     schedule_next_broadcast if !@order.expired? && !@order.accepted?
+    close_if_nobody_left! if @current_radius >= MAX_RADIUS
   end
 
   private
+
+  def close_if_nobody_left!
+    return if @order.is_direct_buy?
+
+    nobody_left = false
+    @order.with_lock do
+      nobody_left = @order.pending_request? && !DealerBroadcastTracker.for_order(@order.id).pending.exists?
+    end
+    B2bOrderCleanupJob.expire_now(@order) if nobody_left
+  end
 
   def broadcast!(is_initial:)
     items = @order.b2b_order_items.open_items.includes(product_variant: :product).to_a
