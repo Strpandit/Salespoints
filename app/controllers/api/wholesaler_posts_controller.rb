@@ -286,15 +286,25 @@ module Api
         return render json: { error: "At least one pincode required" }, status: :unprocessable_entity
       end
 
+      was_expired = post.is_expired?
       post.assign_attributes(wholesaler_post_params)
       post.listing_edit = true
-      post.approve_status = "pending" if post.changed?
-      post.reviewed_at = nil if post.changed?
-      post.reviewed_by_admin = nil if post.changed?
-      post.rejection_reason = nil if post.changed?
+      if was_expired
+        post.reuploaded_at = Time.current
+        post.approve_status = "pending"
+        post.reviewed_at = nil
+        post.reviewed_by_admin = nil
+        post.rejection_reason = nil
+      elsif post.changed?
+        post.approve_status = "pending"
+        post.reviewed_at = nil
+        post.reviewed_by_admin = nil
+        post.rejection_reason = nil
+      end
 
       if post.save
-        render json: { data: post_payload(post, current_dealer_rating_for(post)), message: "Post updated and sent for review" }, status: :ok
+        WholesalerPostNotificationService.notify_created!(post) if was_expired || post.approve_status == "pending"
+        render json: { data: post_payload(post, current_dealer_rating_for(post)), message: was_expired ? "Post updated and submitted for review" : "Post updated and sent for review" }, status: :ok
       else
         render json: { error: post.errors.full_messages }, status: :unprocessable_entity
       end
