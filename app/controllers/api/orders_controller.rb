@@ -1,6 +1,6 @@
 module Api
   class OrdersController < ApplicationController
-    before_action :require_buyer!, only: [:buy_now, :download_invoice]
+    before_action :require_buyer!, only: [:buy_now, :download_invoice, :cancel]
     before_action :authorize_admin_orders_access!, only: [:index, :show, :update, :refund, :release_settlement]
 
     SERIALIZER_PRELOADS = [
@@ -128,6 +128,21 @@ module Api
       render json: serialize_resource(order.reload, OrderSerializer, include: [:delivery_confirmation], base_url: request.base_url).merge(
         delivery_confirmation: delivery_confirmation ? DeliveryConfirmationSerializer.render(delivery_confirmation) : nil,
         message: "Order updated successfully"
+      ), status: :ok
+    rescue StandardError => e
+      render_error(e)
+    end
+
+    # The buyer withdraws an order that no seller has accepted yet. Online payments are refunded in full.
+    def cancel
+      order = current_buyer.orders.find_by(id: params[:id])
+      return render json: { error: "Order not found" }, status: :not_found unless order
+
+      result = BuyerOrderCancellationService.new(order: order).call
+
+      render json: serialize_resource(result.order, OrderSerializer, include: [:order_items], base_url: request.base_url).merge(
+        refunded: result.refunded,
+        message: result.refunded ? "Order cancelled. Your payment will be refunded to the original payment method." : "Order cancelled."
       ), status: :ok
     rescue StandardError => e
       render_error(e)

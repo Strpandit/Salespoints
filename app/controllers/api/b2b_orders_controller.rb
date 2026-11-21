@@ -160,11 +160,22 @@ module Api
       render_error(e)
     end
 
+    def cancel
+      order = current_dealer.buyer_b2b_orders.find_by(id: params[:id])
+      return render json: { error: "Order not found" }, status: :not_found unless order
+
+      result = BuyerOrderCancellationService.new(order: order).call
+
+      render json: serialize_resource(result.order, B2bOrderSerializer, base_url: request.base_url).merge(
+        message: "Request cancelled."
+      ), status: :ok
+    rescue StandardError => e
+      render_error(e)
+    end
+
     def download_invoice
       return render json: { error: "Unauthorized" }, status: :unauthorized unless current_dealer.present? || current_admin.present?
 
-      # B2B invoices only: retail invoices come from orders/:id/download_invoice. Falling back to the
-      # orders table here could return a different retail order that happens to share this id.
       order =
         if current_admin
           B2bOrder.find_by(id: params[:id])

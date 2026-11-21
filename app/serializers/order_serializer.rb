@@ -8,7 +8,7 @@ class OrderSerializer < ApplicationSerializer
              :seller_settlement_amount, :settlement_status, :settlement_due_at,
              :settled_at, :hold_released_at, :refund_status, :refund_amount,
              :refunded_at, :refund_reason, :return_window_closes_at, :payment_reference,
-             :status_note, :shipped_at, :delivered_at
+             :status_note, :shipped_at, :delivered_at, :can_cancel
 
   has_many :order_items
   has_many :return_requests
@@ -114,6 +114,15 @@ class OrderSerializer < ApplicationSerializer
 
   def status_display
     object.status.titleize
+  end
+
+  # True only for the buyer looking at their own order while no seller has accepted it yet.
+  def can_cancel
+    viewer = options[:viewer]
+    return false unless options[:viewer_id].present? && object.buyer_id == options[:viewer_id]
+    return false unless (viewer == :customer && object.buyer_type == "Account") || (viewer == :dealer && object.buyer_type == "Dealer")
+
+    BuyerOrderCancellationService.retail_cancellable?(object)
   end
 
   private

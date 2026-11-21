@@ -425,6 +425,19 @@ class PushEventsHub
       )
     end
 
+    # Order Request Withdrawn By The Buyer (before any seller accepted it)
+    def dealer_order_cancelled_by_buyer(dealer, order)
+      return unless dealer && order
+      NotificationService.deliver(
+        recipient: dealer,
+        kind: "order_cancelled_by_buyer",
+        title: "Order request cancelled",
+        message: "Order ##{order_label(order)} was cancelled by the buyer, so it is no longer available.",
+        notifiable: order,
+        payload: { order_id: order.id, order_number: order_label(order), order_type: order_kind(order), screen: "DealerOrders", role: "dealer" }
+      )
+    end
+
     # 34. New Wholesaler Post Matched
     def dealer_wholesaler_post_matched(dealer, post)
       return unless dealer && post

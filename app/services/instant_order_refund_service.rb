@@ -1,6 +1,6 @@
 class InstantOrderRefundService
   class << self
-    def process_refund!(order:, reason: "Order request rejected or unaccepted by sellers")
+    def process_refund!(order:, reason: "Order request rejected or unaccepted by sellers", notify: true)
       return false if order.blank?
 
       refunded = false
@@ -60,10 +60,12 @@ class InstantOrderRefundService
           )
         end
 
-        if order.is_a?(Order)
-          EmailDispatcherService.retail_order_terminated(order, "Order rejected by all sellers. ₹#{refund_amount} refunded to your payment account via Cashfree.") rescue nil
-        elsif order.is_a?(B2bOrder)
-          EmailDispatcherService.b2b_order_terminated(order, "Order request rejected by seller. ₹#{refund_amount} refunded to your payment account via Cashfree.") rescue nil
+        if notify
+          if order.is_a?(Order)
+            EmailDispatcherService.retail_order_terminated(order, "Order rejected by all sellers. ₹#{refund_amount} refunded to your payment account via Cashfree.") rescue nil
+          elsif order.is_a?(B2bOrder)
+            EmailDispatcherService.b2b_order_terminated(order, "Order request rejected by seller. ₹#{refund_amount} refunded to your payment account via Cashfree.") rescue nil
+          end
         end
 
         refunded = true

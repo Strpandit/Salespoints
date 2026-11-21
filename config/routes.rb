@@ -67,6 +67,7 @@ Rails.application.routes.draw do
       member do
         post :refund
         post :release_settlement
+        post :cancel
         get :download_invoice
       end
     end
@@ -222,6 +223,7 @@ Rails.application.routes.draw do
       member do
         post :accept
         post :reject
+        post :cancel
         patch :update_status
         get :download_invoice
       end

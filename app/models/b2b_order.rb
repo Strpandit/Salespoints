@@ -11,7 +11,7 @@ class B2bOrder < ApplicationRecord
   has_one :delivery_confirmation, -> { where(context: "original") }, as: :deliverable, class_name: "DeliveryConfirmation", dependent: :destroy
   has_one :replacement_delivery_confirmation, -> { where(context: "replacement") }, as: :deliverable, class_name: "DeliveryConfirmation", dependent: :destroy
 
-  REQUEST_STATUSES = %w[pending_request accepted_request rejected_request expired_request].freeze
+  REQUEST_STATUSES = %w[pending_request accepted_request rejected_request expired_request cancelled_request].freeze
   ORDER_STATUSES = %w[pending_request pending_payment paid confirmed shipped delivered cancelled return_requested return_approved return_in_transit returned replacement_requested replacement_approved replacement_shipped replacement_delivered].freeze
   PAYMENT_METHODS = %w[cod online].freeze
   PAYMENT_STATUSES = %w[pending paid failed].freeze

@@ -2,6 +2,15 @@ module Api
   class DealerOrdersController < ApplicationController
     before_action :require_dealer!
 
+    # Added to every row so the app can show, at a glance, what kind of order it is.
+    ORDER_KIND_LABELS = {
+      "b2c" => "B2C Order",
+      "offer_mart" => "Offer Mart",
+      "b2b_broadcast" => "B2B Broadcast",
+      "b2b_direct" => "B2B Direct Buy",
+      "bulk_deal" => "Bulk Deal"
+    }.freeze
+
     def index
       tab = params[:tab].to_s.presence || "incoming"
       time_filter = params[:time_filter].to_s.presence || "all"
@@ -278,6 +287,10 @@ module Api
         type: "b2b",
         tab: source_tab,
         source_type: source_type,
+        order_kind: order_kind_for(order),
+        order_kind_label: ORDER_KIND_LABELS[order_kind_for(order)],
+        order_role: order_role_for(is_buyer, source_tab),
+        can_cancel: is_buyer && BuyerOrderCancellationService.b2b_cancellable?(order),
         reference_number: order.reference_number || order.id.to_s,
         status: order.status,
         request_status: order.request_status,
@@ -328,9 +341,9 @@ module Api
                            .order(created_at: :desc)
                            .first
 
-      is_buyer = order.buyer_id == current_dealer.id
+      is_buyer = order.buyer_type == "Dealer" && order.buyer_id == current_dealer.id
       is_seller = order.seller_dealer_id == current_dealer.id
-      
+
       buyer_name = if order.buyer_type == "Account"
         order.buyer&.full_name || order.buyer&.first_name || "Customer"
       elsif order.buyer_type == "Dealer"
@@ -346,6 +359,10 @@ module Api
           type: "retail",
           tab: source_tab,
           source_type: "retail",
+          order_kind: order_kind_for(order),
+          order_kind_label: ORDER_KIND_LABELS[order_kind_for(order)],
+          order_role: order_role_for(is_buyer, source_tab),
+          can_cancel: is_buyer && BuyerOrderCancellationService.retail_cancellable?(order),
           reference_number: order.order_number,
           status: order.status,
           display_status: meta[:label],
@@ -384,6 +401,28 @@ module Api
           can_update: (order.can_transition_to?("processing") || order.can_transition_to?("shipped")) && order.seller_dealer_id == current_dealer.id,
           next_status: order.status == "pending" ? "processing" : (order.status == "processing" ? "shipped" : nil)
         }
+    end
+
+    def order_kind_for(order)
+      if order.is_a?(B2bOrder)
+        if order.is_direct_buy? && order.source_type == "WholesalerPost"
+          "bulk_deal"
+        elsif order.is_direct_buy?
+          "b2b_direct"
+        else
+          "b2b_broadcast"
+        end
+      elsif order.dealer_offer_id.present?
+        "offer_mart"
+      else
+        "b2c"
+      end
+    end
+
+    def order_role_for(is_buyer, source_tab)
+      return "buying" if is_buyer
+
+      source_tab == "incoming" ? "request" : "selling"
     end
 
     def transform_b2b_item(item)
@@ -472,7 +511,7 @@ module Api
       elsif order.status == "replacement_delivered"
         { label: "Replacement Delivered", color: "#0A7B3E", bg: "#E7F8EE", note: "OTP verification pending" }
       elsif order.status == "cancelled"
-        { label: "Closed", color: "#B42318", bg: "#FEECEB", note: order.request_status == "rejected_request" ? "Rejected by seller" : "Cancelled" }
+        { label: "Closed", color: "#B42318", bg: "#FEECEB", note: order.request_status == "rejected_request" ? "Rejected by seller" : (order.request_status == "cancelled_request" ? "Cancelled by buyer" : "Cancelled") }
       else
         { label: order.status || "Pending", color: "#54595E", bg: "#F1F3F4", note: "" }
       end

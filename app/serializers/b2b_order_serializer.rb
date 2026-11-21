@@ -5,7 +5,7 @@ class B2bOrderSerializer < ApplicationSerializer
              :buyer_name, :seller_name, :open_items_count, :accepted_items_count, :latitude, :longitude,
              :payment_method, :payment_status, :request_status, :source_type, :is_direct_buy,
              :payment_link_sent_at, :confirmed_at, :payment_confirmed_at, :shipped_at, :delivered_at,
-             :status_note, :payment_token, :billing_address, :shipping_address
+             :status_note, :payment_token, :billing_address, :shipping_address, :can_cancel
 
   has_many :b2b_order_items
   has_one :delivery_confirmation
@@ -40,6 +40,13 @@ class B2bOrderSerializer < ApplicationSerializer
 
   def seller_name
     object.seller_dealer&.dealer_code
+  end
+
+  def can_cancel
+    return false unless options[:viewer] == :dealer && options[:viewer_id].present?
+    return false unless object.buyer_dealer_id == options[:viewer_id]
+
+    BuyerOrderCancellationService.b2b_cancellable?(object)
   end
 
   def open_items_count
