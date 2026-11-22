@@ -1,1 +1,8 @@
-# See https://www.robotstxt.org/robotstxt.html for documentation on how to use the robots.txt file
+# api.salespoints.in is the JSON API behind salespoints.in - nothing here is meant for search results.
+# (Product images/files stay crawlable so Google Images can fetch them.)
+User-agent: *
+Disallow: /api/
+Allow: /api/seo/sitemap.xml
+Allow: /sitemap.xml
+
+Sitemap: https://api.salespoints.in/sitemap.xml

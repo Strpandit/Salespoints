@@ -4,6 +4,8 @@ module Api
 
     before_action :authenticate_request!
     before_action :sanitize_paging_params
+    # JSON API responses are not web pages: keep them out of search indexes (SeoController opts out).
+    after_action :apply_noindex_header
 
     rescue_from ActionController::ParameterMissing do |e|
       render json: { error: "Missing required parameter: #{e.param}" }, status: :bad_request
@@ -29,6 +31,10 @@ module Api
     attr_reader :current_user, :current_user_type
 
     private
+
+    def apply_noindex_header
+      response.set_header("X-Robots-Tag", "noindex, nofollow")
+    end
 
     def sanitize_paging_params
       %i[page per_page].each do |key|

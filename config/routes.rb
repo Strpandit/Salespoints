@@ -12,6 +12,9 @@ Rails.application.routes.draw do
   # get "manifest" => "rails/pwa#manifest", as: :pwa_manifest
   # get "service-worker" => "rails/pwa#service_worker", as: :pwa_service_worker
 
+  # Public sitemap for search engines (read-only, cached)
+  get "sitemap.xml", to: "api/seo#sitemap"
+
   # Defines the root path route ("/")
   namespace :api do
     namespace :admin do
@@ -42,6 +45,8 @@ Rails.application.routes.draw do
 
     get "storefront/hero_slides", to: "storefront#hero_slides"
     get "storefront/flash_sale", to: "storefront#flash_sale"
+    # SEO: dynamic XML sitemap (also exposed at /sitemap.xml below)
+    get "seo/sitemap.xml", to: "seo#sitemap"
     resources :push_subscriptions, only: [:create]
     delete "push_subscriptions", to: "push_subscriptions#destroy"
     get "locations/reverse_geocode", to: "locations#reverse_geocode"
