@@ -121,6 +121,11 @@ module Api
       return render_ambiguous_order if order == :ambiguous
       return render json: { error: "Request not found or already processed" }, status: :not_found unless order
 
+      if offer_mart_order?(order)
+        OfferMartSellerResponseService.new(order: order, dealer: current_dealer).accept!
+        return render json: { message: "Order confirmed." }, status: :ok
+      end
+
       unless acceptable_order?(order)
         return render json: { error: "Request not available for acceptance" }, status: :unprocessable_entity
       end
@@ -142,6 +147,12 @@ module Api
       order = find_order(params[:id])
       return render_ambiguous_order if order == :ambiguous
       return render json: { error: "Request not found or already processed" }, status: :not_found unless order
+
+      # Offer Mart orders are already confirmed with this seller: rejecting cancels the order (refund + stock back).
+      if offer_mart_order?(order)
+        OfferMartSellerResponseService.new(order: order, dealer: current_dealer).reject!
+        return render json: { message: "Order rejected and cancelled." }, status: :ok
+      end
 
       unless acceptable_order?(order)
         return render json: { error: "Request not available for rejection" }, status: :unprocessable_entity
@@ -387,6 +398,10 @@ module Api
 
     def render_ambiguous_order
       render json: { error: "Please refresh the orders list and try again." }, status: :conflict
+    end
+
+    def offer_mart_order?(order)
+      order.is_a?(Order) && order.dealer_offer_id.present?
     end
 
     def acceptable_order?(order)

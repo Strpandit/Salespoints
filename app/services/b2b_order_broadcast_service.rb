@@ -261,11 +261,11 @@ class B2bOrderBroadcastService
         items: serialized_offer_items(matched_items),
         broadcast_radius: @current_radius,
         rebroadcast: false
-      }.merge(request_alert_details(dealer, product_name, total_items))
+      }.merge(request_alert_details(dealer, product_name, total_items, first_item))
     )
   end
 
-  def request_alert_details(dealer, product_name, total_items)
+  def request_alert_details(dealer, product_name, total_items, first_item = nil)
     full_address, from_location = (@alert_location ||= resolve_b2b_address_and_location)
     seller_location = dealer&.dealer_location
     distance =
@@ -278,8 +278,10 @@ class B2bOrderBroadcastService
 
     {
       item_name: product_name,
+      variant_name: OrderAlertLabels.variant_label(first_item&.product_variant),
+      color_name: OrderAlertLabels.color_label(first_item),
       quantity: total_items,
-      pincode: full_address.to_s[/\b\d{6}\b/],
+      pincode: OrderAlertLabels.pincode(@broadcast_center == :delivery ? @order.shipping_address : nil, full_address),
       distance_km: distance,
       delivery_area: mask_approx_address(full_address)
     }.compact

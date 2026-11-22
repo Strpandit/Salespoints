@@ -10,8 +10,9 @@ class PushNotificationService
   RETRYABLE_STATUS_CODES = [429, 500, 502, 503, 504].freeze
   TRANSIENT_ERRORS = [Net::OpenTimeout, Net::ReadTimeout, Errno::ECONNRESET, Errno::ECONNREFUSED, SocketError, OpenSSL::SSL::SSLError].freeze
   INTERNAL_PAYLOAD_KEYS = %w[delivery_channels visible_in_app notifiable_type notifiable_id].freeze
-  ORDER_RING_KINDS = %w[b2c_order_request b2b_order_request b2c_order_broadcast b2b_order_broadcast].freeze
-  INFO_RING_KINDS = %w[new_wholesaler_post offer_mart_order_placed].freeze
+  ORDER_RING_KINDS = %w[b2c_order_request b2b_order_request b2b_wholesaler_request offer_mart_order_placed b2c_order_broadcast b2b_order_broadcast].freeze
+  INFO_RING_KINDS = %w[new_wholesaler_post].freeze
+  ORDER_SOURCES = { "offer_mart_order_placed" => "offer_mart", "b2b_wholesaler_request" => "bulk_deal" }.freeze
   RING_KINDS = (ORDER_RING_KINDS + INFO_RING_KINDS).freeze
   RING_DROPPED_KEYS = %w[items item_ids params].freeze
   FCM_DATA_BUDGET = 3200
@@ -28,7 +29,6 @@ class PushNotificationService
     tokens = subscriptions.distinct.pluck(:token)
     return [] if tokens.empty?
     ring_kind = RING_KINDS.include?(notification.notification_type.to_s)
-    # A ring can arrive late (queue lag, retry) after the request was already taken or closed.
     ring_open = !ring_kind || ring_request_open?(notification)
 
     creds = firebase_credentials
@@ -60,9 +60,6 @@ class PushNotificationService
     retryable
   end
 
-  # Ring requests keep ringing on a dealer's phone until answered. Once the order is taken by someone else (or
-  # closes), tell every other dealer who was alerted to stop: a data-only push the app turns into "cancel that
-  # ringing notification". Best effort: a failure here must never affect the order flow.
   def self.cancel_ring(order, except_dealer_id: nil)
     new.cancel_ring(order, except_dealer_id: except_dealer_id)
   rescue StandardError => e
@@ -110,15 +107,17 @@ class PushNotificationService
 
   private
 
-  # Order requests only ring while someone can still answer them. Bulk-deal and Offer Mart alerts are
-  # informational and always ring.
   def ring_request_open?(notification)
     return true unless ORDER_RING_KINDS.include?(notification.notification_type.to_s)
 
     order = notification.notifiable
     case order
     when Order
-      order.status.to_s == "pending" && order.seller_dealer_id.blank?
+      if order.dealer_offer_id.present?
+        order.status.to_s == "processing" && order.seller_dealer_id.present?
+      else
+        order.status.to_s == "pending" && order.seller_dealer_id.blank?
+      end
     when B2bOrder
       order.request_status.to_s == "pending_request"
     else
@@ -243,6 +242,7 @@ class PushNotificationService
     if ORDER_RING_KINDS.include?(type)
       data["alert_kind"] = "order"
       data["order_type"] = type.start_with?("b2b") ? "b2b" : "retail"
+      data["order_source"] = ORDER_SOURCES[type] if ORDER_SOURCES[type]
       data["order_id"] = notifiable.id.to_s if notifiable.respond_to?(:id)
       data["screen"] = "DealerOrders"
       data["params"] = { orderId: notifiable.id, role: "dealer" }.to_json if notifiable.respond_to?(:id)
@@ -251,14 +251,6 @@ class PushNotificationService
       data["alert_kind"] = "wholesaler"
       data["screen"] = "DealerWholesalerFeed"
       data["params"] = { postId: post_id }.to_json
-    else
-      data["alert_kind"] = "offer_mart"
-      data["order_type"] = "retail"
-      data["screen"] = "DealerOrders"
-      if notifiable.respond_to?(:id)
-        data["order_id"] = notifiable.id.to_s
-        data["params"] = { orderId: notifiable.id, role: "dealer" }.to_json
-      end
     end
     data
   end

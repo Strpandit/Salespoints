@@ -187,13 +187,13 @@ class B2cOrderBroadcastService
         total_amount: total_amount.to_f,
         item_ids: matched_items.map(&:id),
         items: serialized_offer_items(matched_items)
-      }.merge(request_alert_details(dealer, product_name, total_items))
+      }.merge(request_alert_details(dealer, product_name, total_items, first_item))
     )
     offer.update!(notification: notification)
     notification
   end
 
-  def request_alert_details(dealer, product_name, total_items)
+  def request_alert_details(dealer, product_name, total_items, first_item = nil)
     full_address, buyer_location = (@alert_location ||= resolve_b2c_address_and_location)
     seller_location = dealer&.dealer_location
     distance =
@@ -206,8 +206,10 @@ class B2cOrderBroadcastService
 
     {
       item_name: product_name,
+      variant_name: OrderAlertLabels.variant_label(first_item&.product_variant),
+      color_name: OrderAlertLabels.color_label(first_item),
       quantity: total_items,
-      pincode: full_address.to_s[/\b\d{6}\b/],
+      pincode: OrderAlertLabels.pincode(@order.shipping_address, full_address),
       distance_km: distance,
       delivery_area: mask_approx_address(full_address)
     }.compact

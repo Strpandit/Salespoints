@@ -377,7 +377,7 @@ class B2bOrderPaymentService
         total_amount: item.total_price.to_f,
         product_name: product_name,
         quantity: item.quantity
-      }
+      }.merge(OrderAlertLabels.wholesaler_request_details(order, item))
     )
   end
 

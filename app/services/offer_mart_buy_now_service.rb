@@ -137,9 +137,13 @@ class OfferMartBuyNowService
         order_id: order.order_number,
         dealer_offer_id: offer.id,
         offer_name: offer_title,
+        item_name: offer_title,
+        variant_name: offer.variant_name.presence || OrderAlertLabels.variant_label(offer.product_variant),
         quantity: @quantity,
-        total_amount: order.total_amount.to_f
-      }
+        total_amount: order.total_amount.to_f,
+        pincode: @pincode.presence,
+        delivery_area: OrderAlertLabels.delivery_area([@shipping_address["city"], @shipping_address["state"]].compact_blank.join(", "))
+      }.compact
     )
 
     NotificationService.deliver(
