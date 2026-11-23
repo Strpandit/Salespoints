@@ -1,11 +1,12 @@
 class B2bOrderDealerResponseService
   include Rails.application.routes.url_helpers
 
-  def initialize(order:, dealer:, requested_ids: nil, offer: nil)
+  def initialize(order:, dealer:, requested_ids: nil, offer: nil, reason: nil)
     @order = order
     @dealer = dealer
     @requested_ids = Array(requested_ids).map(&:to_i).uniq
     @offer = offer
+    @reject_reason = reason.to_s.strip.presence
   end
 
   def accept!
@@ -86,13 +87,11 @@ class B2bOrderDealerResponseService
     offer = lock_b2c_request_offer!(order: order)
     ensure_b2c_order_can_be_accepted!(order)
 
-    offer.update!(status: "rejected", responded_at: Time.current, whatsapp_status: "replied")
+    offer.update!(status: "rejected", responded_at: Time.current, whatsapp_status: "replied", delivery_payload: payload_with_reject_reason(offer))
 
     tracker = OrderBroadcastTracker.find_by(order: order, dealer: @dealer)
     tracker&.update!(status: "rejected")
 
-    # The request is dead once no seller can still answer it. Counting only "rejected" offers kept a paid order
-    # waiting for hours whenever another seller's offer had expired or been closed instead of rejected.
     answerable_offers = order.order_offers
                              .where(status: "open")
                              .where("expires_at IS NULL OR expires_at > ?", Time.current)
@@ -102,11 +101,17 @@ class B2bOrderDealerResponseService
         status: "cancelled",
         status_note: "All sellers rejected the order"
       )
-      # The refund calls the payment gateway, so it runs after this transaction has committed.
       @refund_after_commit = order
     end
 
     order
+  end
+
+  def payload_with_reject_reason(offer)
+    payload = offer.delivery_payload.is_a?(Hash) ? offer.delivery_payload : {}
+    return payload if @reject_reason.blank?
+
+    payload.merge("reject_reason" => @reject_reason.first(300), "rejected_by_dealer_id" => @dealer&.id)
   end
 
   def refund_rejected_order_after_commit!
@@ -326,7 +331,8 @@ class B2bOrderDealerResponseService
     offer.update!(
       status: "rejected",
       responded_at: Time.current,
-      whatsapp_status: "replied"
+      whatsapp_status: "replied",
+      delivery_payload: payload_with_reject_reason(offer)
     )
 
     tracker = DealerBroadcastTracker.find_by(b2b_order: order, dealer: @dealer)
@@ -388,7 +394,7 @@ class B2bOrderDealerResponseService
 
     raise StandardError, "Order is not in pending request state" unless order.pending_request?
     order.update!(status: "cancelled", request_status: "rejected_request", rejected_at: Time.current)
-    offer.update!(status: "rejected", responded_at: Time.current, whatsapp_status: "replied")
+    offer.update!(status: "rejected", responded_at: Time.current, whatsapp_status: "replied", delivery_payload: payload_with_reject_reason(offer))
 
     InstantOrderRefundService.process_refund!(order: order, reason: "Seller rejected direct buy order request")
     order

@@ -148,9 +148,11 @@ module Api
       return render_ambiguous_order if order == :ambiguous
       return render json: { error: "Request not found or already processed" }, status: :not_found unless order
 
-      # Offer Mart orders are already confirmed with this seller: rejecting cancels the order (refund + stock back).
+      reason, reason_error = RejectReasonValidator.validate(params[:reason].presence || params[:reject_reason].presence)
+      return render json: { error: reason_error }, status: :unprocessable_entity if reason_error
+
       if offer_mart_order?(order)
-        OfferMartSellerResponseService.new(order: order, dealer: current_dealer).reject!
+        OfferMartSellerResponseService.new(order: order, dealer: current_dealer, reason: reason).reject!
         return render json: { message: "Order rejected and cancelled." }, status: :ok
       end
 
@@ -163,7 +165,8 @@ module Api
       B2bOrderDealerResponseService.new(
         order: order,
         dealer: current_dealer,
-        offer: offer
+        offer: offer,
+        reason: reason
       ).reject!
 
       render json: { message: "Order rejected successfully" }, status: :ok

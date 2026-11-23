@@ -455,7 +455,8 @@ class MetaWhatsappWebhookService
     service = B2bOrderDealerResponseService.new(
       order: order,
       dealer: dealer,
-      offer: offer
+      offer: offer,
+      reason: "Rejected from WhatsApp (no reason given)"
     )
 
     service.reject!

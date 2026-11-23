@@ -4,9 +4,10 @@ class OfferMartSellerResponseService
   REASON = "Rejected by the seller".freeze
   NOTICE_REASON = "rejected by seller".freeze
 
-  def initialize(order:, dealer:)
+  def initialize(order:, dealer:, reason: nil)
     @order = order
     @dealer = dealer
+    @reason = reason.to_s.strip.presence
   end
 
   def accept!
@@ -20,17 +21,22 @@ class OfferMartSellerResponseService
   end
 
   def reject!
+    reason, reason_error = RejectReasonValidator.validate(@reason)
+    raise NotAllowed, reason_error if reason_error
+
+    note = "#{REASON}: #{reason}"
+
     @order.with_lock do
       ensure_own_offer_order!
       raise NotAllowed, "This order is already cancelled." if @order.status.to_s == "cancelled"
       raise NotAllowed, "This order is already #{@order.status.to_s.humanize.downcase}, so it can no longer be rejected." unless @order.status.to_s == "processing"
 
       if @order.payment_method.to_s == "online" && @order.payment_status.to_s.in?(%w[paid partially_refunded])
-        refunded = InstantOrderRefundService.process_refund!(order: @order, reason: REASON, notify: false)
+        refunded = InstantOrderRefundService.process_refund!(order: @order, reason: note, notify: false)
         raise NotAllowed, "We could not start the buyer's refund right now, so the order was not rejected. Please try again in a minute." unless refunded
       end
 
-      OrderLifecycleService.new(order: @order, actor: @dealer, status_note: REASON).transition!(next_status: "cancelled")
+      OrderLifecycleService.new(order: @order, actor: @dealer, status_note: note).transition!(next_status: "cancelled")
     end
 
     notify_after_reject
