@@ -23,7 +23,7 @@ class DealerOfferNotificationService
         kind: expiry_reminder_kind(hours_before),
         title: "Offer Mart Offer Expiring Soon",
         message: "Your Offer Mart offer \"#{offer.display_title}\" expires in #{time_label}. Re-upload it after expiry to keep it live.",
-        payload: offer_payload(offer),
+        payload: offer_payload(offer).merge(screen: "DealerOffers", role: "dealer"),
         delivery_channels: { push: true, in_app: true, email: true }
       )
       DealerOfferMailer.expiry_reminder(offer.id, hours_before).deliver_later if dealer.email.present?

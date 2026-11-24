@@ -592,7 +592,7 @@ class PushEventsHub
         title: "Low Stock Warning 📉",
         message: "#{product.name} ka stock sirf #{remaining_qty} bacha hai. Re-stock karein.",
         notifiable: product,
-        payload: { product_id: product.id, screen: "DealerProducts" }
+        payload: { product_id: product.id, product_name: product.name.to_s, screen: "DealerProducts", role: "dealer" }
       )
     end
 
@@ -605,7 +605,7 @@ class PushEventsHub
         title: "Product out of stock",
         message: "#{product.name} is now out of stock. Please restock to keep receiving orders for it.",
         notifiable: product,
-        payload: { product_id: product.id, screen: "DealerProducts" }
+        payload: { product_id: product.id, product_name: product.name.to_s, screen: "DealerProducts", role: "dealer" }
       )
     end
 
@@ -618,7 +618,7 @@ class PushEventsHub
         title: "Product approved",
         message: "Your product '#{product.name}' has been approved and is now live.",
         notifiable: product,
-        payload: { product_id: product.id, screen: "DealerProducts" }
+        payload: { product_id: product.id, product_name: product.name.to_s, screen: "DealerProducts", role: "dealer" }
       )
     end
 
@@ -633,7 +633,7 @@ class PushEventsHub
         title: "Product not approved",
         message: msg,
         notifiable: product,
-        payload: { product_id: product.id, screen: "DealerProducts" }
+        payload: { product_id: product.id, product_name: product.name.to_s, screen: "DealerProducts", role: "dealer" }
       )
     end
 
