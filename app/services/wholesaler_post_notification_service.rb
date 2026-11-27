@@ -1,7 +1,7 @@
 class WholesalerPostNotificationService
   class << self
     def notify_created!(post)
-      admins = admin_recipients
+      admins = admin_recipients(post)
       admins.each do |admin|
         NotificationService.deliver(
           recipient: admin,
@@ -130,8 +130,17 @@ class WholesalerPostNotificationService
 
     private
 
-    def admin_recipients
-      AdminUser.where(is_super_admin: true).where(status: "active").where.not(email: [nil, ""])
+    def admin_recipients(post = nil)
+      recipients = AdminUser.where(is_super_admin: true).where(status: "active").to_a
+      recipients += AdminUser.joins(:roles).where(status: "active", roles: { name: "super_admin" }).to_a
+
+      if post&.pincodes.present?
+        area_admins = AdminUser.where(status: "active")
+                               .where("pincodes && ARRAY[?]::varchar[]", post.pincodes)
+        recipients += area_admins.to_a
+      end
+
+      recipients.uniq(&:id).select { |a| a.email.present? }
     end
 
     def dealer_label(dealer)

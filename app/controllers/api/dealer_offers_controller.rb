@@ -68,6 +68,7 @@ module Api
       end
 
       if offer.save
+        notify_admins_new_offer(offer)
         render json: { data: offer_payload(offer), message: "Offer submitted for admin review" }, status: :created
       else
         render json: { error: offer.errors.full_messages }, status: :unprocessable_entity
@@ -495,6 +496,20 @@ module Api
       return "Dealer Code: #{dealer.dealer_code}" if dealer.dealer_code.present?
 
       "Dealer ##{dealer.id}"
+    end
+
+    def notify_admins_new_offer(offer)
+      emails = AdminUser.where(status: "active", is_super_admin: true).pluck(:email)
+      emails += AdminUser.joins(:roles).where(status: "active", roles: { name: "super_admin" }).pluck(:email)
+      if offer.pincodes.present?
+        emails += AdminUser.where(status: "active").where("pincodes && ARRAY[?]::varchar[]", offer.pincodes).pluck(:email)
+      end
+      emails = emails.compact.map(&:strip).reject(&:blank?).uniq
+      emails.each do |email|
+        DealerOfferMailer.admin_new_offer(offer.id, email).deliver_later
+      end
+    rescue StandardError => e
+      Rails.logger.error("[DealerOffersController] notify_admins_new_offer failed: #{e.message}")
     end
   end
 end

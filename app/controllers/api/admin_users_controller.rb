@@ -159,6 +159,7 @@ module Api
       admin.status = "inactive"
       admin.otp_pin = SecureRandom.random_number(1000..9999).to_s
       admin.otp_sent_at = Time.current
+      admin.created_by = current_admin if respond_to?(:current_admin) && current_admin.present? && admin.respond_to?(:created_by=)
 
       temp_password = SecureRandom.hex(6)
       admin.password = temp_password
@@ -614,8 +615,46 @@ module Api
         raise ActiveRecord::RecordInvalid.new(admin)
       end
 
+      old_pincodes = admin.pincodes
       admin.pincodes = pincodes
       admin.save!
+      notify_area_allocation(admin, pincodes) if old_pincodes != pincodes
+    end
+
+    def notify_area_allocation(admin, pincodes)
+      actor = respond_to?(:current_admin) && current_admin.present? ? current_admin : nil
+      actor_payload = { name: actor&.full_name || "Admin", email: actor&.email }
+      changes = { "Area Pincodes" => { from: (admin.pincodes_previously_was || []).join(", "), to: pincodes.join(", ") } }
+
+      # 1. Notify the staff member
+      if admin.email.present?
+        AdminNotificationMailer.entity_updated(
+          admin.email,
+          "Staff Area Allocation",
+          admin.full_name,
+          actor_payload,
+          changes
+        ).deliver_later
+      end
+
+      # 2. Notify Super Admins and managing/creator admin
+      super_admins = AdminUser.where(status: "active", is_super_admin: true).to_a
+      super_admins += AdminUser.joins(:roles).where(status: "active", roles: { name: "super_admin" }).to_a
+      super_admins << admin.created_by if admin.respond_to?(:created_by) && admin.created_by.present?
+
+      recipients = super_admins.compact.uniq(&:id).reject { |a| a.id == admin.id }
+      recipients.each do |recipient|
+        next if recipient.email.blank?
+        AdminNotificationMailer.entity_updated(
+          recipient.email,
+          "Staff Area Allocation",
+          admin.full_name,
+          actor_payload,
+          changes
+        ).deliver_later
+      end
+    rescue StandardError => e
+      Rails.logger.error("[AdminUsersController] notify_area_allocation failed: #{e.message}")
     end
 
     def require_admin
@@ -656,6 +695,8 @@ module Api
 
     def notify_admin_approvers(admin)
       emails = AdminUser.where(status: "active", is_super_admin: true).pluck(:email)
+      emails += AdminUser.joins(:roles).where(status: "active", roles: { name: "super_admin" }).pluck(:email)
+      emails << admin.created_by.email if admin.respond_to?(:created_by) && admin.created_by&.email.present?
       emails << current_admin.email if respond_to?(:current_admin) && current_admin&.email.present?
       emails.compact.map(&:strip).reject(&:blank?).uniq.each do |email|
         AdminAuthMailer.onboarding_approval_request(admin, email).deliver_later
@@ -712,7 +753,7 @@ module Api
     end
 
     def serializer_options
-      { base_url: request.base_url }
+      { base_url: request.base_url, current_admin: current_admin }
     end
 
     def unauthorized(msg)

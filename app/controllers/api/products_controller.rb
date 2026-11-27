@@ -271,14 +271,19 @@ module Api
     # with the new files so existing media is kept.
     def preserve_existing_media(attrs)
       new_files = uploaded_files(attrs["media"])
-      attrs["media"] = @product.media_blobs.to_a + new_files if new_files.any? && @product.media.attached?
+      if new_files.empty?
+        attrs.delete("media")
+      else
+        attrs["media"] = new_files
+      end
 
       color_attribute_list(attrs).each do |color_attrs|
         files = uploaded_files(color_attrs["media"])
-        next if files.empty? || color_attrs["id"].blank?
-
-        color = @product.product_variant_colors.find_by(id: color_attrs["id"])
-        color_attrs["media"] = color.media_blobs.to_a + files if color&.media&.attached?
+        if files.empty?
+          color_attrs.delete("media")
+        else
+          color_attrs["media"] = files
+        end
       end
       attrs
     end

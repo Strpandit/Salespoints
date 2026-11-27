@@ -38,18 +38,35 @@ class AdminUserSerializer < ApplicationSerializer
     file_payload(object.staff_profile_pic)
   end
 
+  def salary
+    can_view_sensitive? ? object.salary : nil
+  end
+
+  def bank_account_number
+    can_view_sensitive? ? object.bank_account_number : mask_value(object.bank_account_number)
+  end
+
+  def aadhar_number
+    can_view_sensitive? ? object.aadhar_number : mask_value(object.aadhar_number)
+  end
+
+  def pan_number
+    can_view_sensitive? ? object.pan_number : mask_value(object.pan_number)
+  end
+
   def aadhar_card
+    return [] unless can_view_sensitive?
     object.aadhar_card.map { |file| file_payload(file, expires_in: KYC_LINK_TTL) }
   end
 
   def pan_card
-    return nil unless object.pan_card.attached?
+    return nil unless can_view_sensitive? && object.pan_card.attached?
 
     file_payload(object.pan_card, expires_in: KYC_LINK_TTL)
   end
 
   def passbook
-    return nil unless object.passbook.attached?
+    return nil unless can_view_sensitive? && object.passbook.attached?
 
     file_payload(object.passbook, expires_in: KYC_LINK_TTL)
   end
@@ -59,10 +76,27 @@ class AdminUserSerializer < ApplicationSerializer
   end
 
   def marksheets
+    return [] unless can_view_sensitive?
     object.marksheets.map { |file| file_payload(file) }
   end
 
   private
+
+  def can_view_sensitive?
+    viewer = options[:current_admin]
+    return true if viewer.blank?
+    return true if viewer.super_admin?
+    return true if viewer.id == object.id
+    return true if object.respond_to?(:created_by_id) && object.created_by_id == viewer.id
+
+    false
+  end
+
+  def mask_value(val)
+    return nil if val.blank?
+    str = val.to_s
+    str.length > 4 ? ("*" * (str.length - 4)) + str[-4..] : "****"
+  end
 
   KYC_LINK_TTL = 2.hours
 

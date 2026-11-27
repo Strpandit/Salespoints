@@ -11,7 +11,7 @@ module PrimaryMediaAttachable
   end
 
   def ordered_media_attachments
-    attachments = media_attachments.to_a
+    attachments = media_attachments.to_a.uniq(&:blob_id)
     return attachments if primary_media_blob_id.blank?
 
     primary, rest = attachments.partition { |attachment| attachment.blob_id == primary_media_blob_id }

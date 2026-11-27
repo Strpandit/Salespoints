@@ -1,4 +1,12 @@
 class DealerOfferMailer < ApplicationMailer
+  def admin_new_offer(offer_id, admin_email)
+    @offer = DealerOffer.includes(:dealer, :product).find_by(id: offer_id)
+    return unless @offer
+
+    @dealer = @offer.dealer
+    mail(to: admin_email, subject: "🏷️ [SalesPoints] New Offer Mart Deal Awaiting Approval - #{@offer.display_title}")
+  end
+
   def expiry_reminder(offer_id, hours_before)
     @offer = DealerOffer.includes(:dealer).find_by(id: offer_id)
     return unless @offer

@@ -24,8 +24,10 @@ class AdminUser < ApplicationRecord
   has_many :ticket_messages, foreign_key: 'admin_user_id', dependent: :destroy
   has_many :contact_form_submissions, dependent: :destroy
   belongs_to :approved_by, class_name: "AdminUser", optional: true
+  belongs_to :created_by, class_name: "AdminUser", optional: true
   belongs_to :deleted_by, class_name: "AdminUser", optional: true
   has_many :deleted_admins, class_name: "AdminUser", foreign_key: :deleted_by_id
+  has_many :subordinate_admins, class_name: "AdminUser", foreign_key: :created_by_id
 
   has_many_attached :marksheets
   has_many_attached :aadhar_card
@@ -73,6 +75,10 @@ class AdminUser < ApplicationRecord
 
   def super_admin?
     is_super_admin || roles.active.exists?(name: "super_admin")
+  end
+
+  def effective_created_by
+    created_by || AdminUser.find_by(is_super_admin: true)
   end
 
   def accessible_pincodes
